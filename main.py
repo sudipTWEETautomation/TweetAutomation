@@ -101,17 +101,17 @@ async def start_handler(msg: Message):
         await msg.answer(
             "👋 Welcome to the Twitter Scheduler Bot!\n\n"
             "Commands:\n"
-            "/uploadApiKeys – Upload Twitter accounts JSON\n"
-            "/uploadTweets – Upload tweets.txt file\n"
+            "/uploadapikeys – Upload Twitter accounts JSON\n"
+            "/uploadtweets – Upload tweets.txt file\n"
             "/schedule – Set tweet schedule time (e.g. 3 August 2025 @12:31AM)"
         )
 
-@dp.message(Command("uploadApiKeys"))
+@dp.message(Command("uploadapikeys"))
 async def upload_keys_handler(msg: Message):
     if not await require_auth(msg): return
     await msg.answer("📥 Please send the <b>accounts.json</b> file")
 
-@dp.message(Command("uploadTweets"))
+@dp.message(Command("uploadtweets"))
 async def upload_tweets_handler(msg: Message):
     if not await require_auth(msg): return
     await msg.answer("📥 Please send the <b>tweets.txt</b> file (each tweet separated by 2 line breaks)")
