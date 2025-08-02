@@ -14,8 +14,8 @@ import tweepy
 
 # =================== CONFIG ===================
 
-API_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"  # <-- Place your bot token here
-ADMIN_ID = 123456789  # <-- Place your Telegram user ID here
+API_TOKEN = "8428126884:AAFeYk650yE4oUXNIDSi_Mjv9Rl9WIPZ8SQ"  # <-- Place your bot token here
+ADMIN_ID = 6535216093  # <-- Place your Telegram user ID here
 
 DATA_DIR = "data"
 TWEETS_FILE = os.path.join(DATA_DIR, "tweets.txt")
