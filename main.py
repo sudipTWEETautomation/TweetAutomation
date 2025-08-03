@@ -11,6 +11,8 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.date import DateTrigger
 from dateutil import parser as date_parser
 import tweepy
+from pytz import timezone
+import pytz
 
 # =================== CONFIG ===================
 
@@ -113,7 +115,8 @@ async def start_handler(msg: Message):
             "Commands:\n"
             "/uploadapikeys – Upload Twitter accounts JSON\n"
             "/uploadtweets – Upload tweets.txt file\n"
-            "/schedule – Set tweet schedule time (e.g. 3 August 2025 @12:31AM)"
+            "/schedule – Set tweet schedule time (e.g. 3 August 2025 @12:31AM)\n"
+            "\n<b>Note:</b> Give time in IST (India time)!"
         )
 
 @dp.message(Command("uploadapikeys"))
@@ -153,7 +156,7 @@ async def handle_files(msg: Message):
 @dp.message(Command("schedule"))
 async def schedule_handler(msg: Message):
     if not await require_auth(msg): return
-    await msg.answer("🕰 Enter Tweet post time with date\n\nExample: <code>3 August 2025 @12:31AM</code>")
+    await msg.answer("🕰 Enter Tweet post time with date\n\nExample: <code>3 August 2025 @12:31AM</code>\n<b>Give time in IST (India Standard Time)</b>")
 
 @dp.message(F.text)
 async def token_or_schedule_handler(msg: Message):
@@ -170,16 +173,29 @@ async def token_or_schedule_handler(msg: Message):
     # If authorized, handle scheduling as before
     if text and ("@" in text or ":" in text):
         try:
+            # Parse user input time (assume IST)
             user_time = date_parser.parse(text, fuzzy=True)
-            await msg.answer(f"✅ Tweets scheduled for: <b>{user_time}</b>")
-            scheduler.add_job(post_all_tweets, DateTrigger(run_date=user_time), args=[msg.chat.id, user_id])
+            ist = timezone('Asia/Kolkata')
+            if user_time.tzinfo is None:
+                user_time_ist = ist.localize(user_time)
+            else:
+                user_time_ist = user_time.astimezone(ist)
+            user_time_utc = user_time_ist.astimezone(pytz.utc)
+            await msg.answer(
+                f"✅ Tweets scheduled for:\n<b>{user_time_ist.strftime('%Y-%m-%d %I:%M %p')} IST</b>\n"
+                f"<b>{user_time_utc.strftime('%Y-%m-%d %I:%M %p')} UTC</b>"
+            )
+            scheduler.add_job(post_all_tweets, DateTrigger(run_date=user_time_utc), args=[msg.chat.id, user_id])
         except Exception as e:
             logging.error(f"Schedule parse error: {e}")
             await msg.answer("❌ Invalid time format. Try again.")
 
 async def post_all_tweets(chat_id, user_id):
+    logging.info(f"post_all_tweets called for chat_id={chat_id}, user_id={user_id}")
     tweets = load_tweets(user_id)
     accounts = load_accounts(user_id)
+    logging.info(f"Loaded tweets: {tweets}")
+    logging.info(f"Loaded accounts: {accounts}")
 
     if not tweets:
         await bot.send_message(chat_id, "⚠ No tweets found! Please upload tweets.txt.")
@@ -205,6 +221,7 @@ async def post_all_tweets(chat_id, user_id):
 
     for link in links:
         await bot.send_message(chat_id, link)
+    logging.info(f"Finished posting, links: {links}")
 
 # =================== MAIN ===================
 
