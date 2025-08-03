@@ -18,14 +18,6 @@ API_TOKEN = "8428126884:AAFeYk650yE4oUXNIDSi_Mjv9Rl9WIPZ8SQ"  # <-- Place your b
 ADMIN_ID = 6535216093  # <-- Place your Telegram user ID here
 
 DATA_DIR = "data"
-TWEETS_FILE = os.path.join(DATA_DIR, "tweets.txt")
-ACCOUNTS_FILE = os.path.join(DATA_DIR, "accounts.json")
-USED_TWEETS_FILE = os.path.join(DATA_DIR, "used_tweets.json")
-
-os.makedirs(DATA_DIR, exist_ok=True)
-if not os.path.exists(USED_TWEETS_FILE):
-    with open(USED_TWEETS_FILE, "w", encoding="utf-8") as f:
-        json.dump([], f)
 
 # ========== ACCESS CONTROL ==========
 APPROVED_TOKENS = {"STA44215"}  # add more tokens if needed
@@ -33,6 +25,20 @@ approved_users = set([ADMIN_ID])  # admin always approved
 
 def is_authorized(user_id):
     return user_id == ADMIN_ID or user_id in approved_users
+
+def user_dir(user_id):
+    path = os.path.join(DATA_DIR, str(user_id))
+    os.makedirs(path, exist_ok=True)
+    return path
+
+def user_tweets_file(user_id):
+    return os.path.join(user_dir(user_id), "tweets.txt")
+
+def user_accounts_file(user_id):
+    return os.path.join(user_dir(user_id), "accounts.json")
+
+def user_used_tweets_file(user_id):
+    return os.path.join(user_dir(user_id), "used_tweets.json")
 
 # =================== BOT, DISPATCHER, SCHEDULER ===================
 bot = Bot(token=API_TOKEN, parse_mode=ParseMode.HTML)
@@ -44,33 +50,37 @@ scheduler = AsyncIOScheduler()
 async def save_uploaded_file(file_id: str, destination: str):
     await bot.download(file_id, destination)
 
-def load_tweets():
-    if not os.path.exists(TWEETS_FILE):
+def load_tweets(user_id):
+    tweets_file = user_tweets_file(user_id)
+    used_tweets_file = user_used_tweets_file(user_id)
+    if not os.path.exists(tweets_file):
         return []
-    with open(TWEETS_FILE, encoding="utf-8") as f:
+    with open(tweets_file, encoding="utf-8") as f:
         raw = f.read()
         all_tweets = [x.strip() for x in raw.strip().split("\n\n") if x.strip()]
-    if not os.path.exists(USED_TWEETS_FILE):
+    if not os.path.exists(used_tweets_file):
         used_tweets = []
     else:
-        with open(USED_TWEETS_FILE, encoding="utf-8") as f:
+        with open(used_tweets_file, encoding="utf-8") as f:
             used_tweets = json.load(f)
     return [tweet for tweet in all_tweets if tweet not in used_tweets]
 
-def save_used_tweets(tweets):
-    if not os.path.exists(USED_TWEETS_FILE):
+def save_used_tweets(user_id, tweets):
+    used_tweets_file = user_used_tweets_file(user_id)
+    if not os.path.exists(used_tweets_file):
         used = []
     else:
-        with open(USED_TWEETS_FILE, "r", encoding="utf-8") as f:
+        with open(used_tweets_file, "r", encoding="utf-8") as f:
             used = json.load(f)
     used.extend(tweets)
-    with open(USED_TWEETS_FILE, "w", encoding="utf-8") as f:
+    with open(used_tweets_file, "w", encoding="utf-8") as f:
         json.dump(used, f, indent=2)
 
-def load_accounts():
-    if not os.path.exists(ACCOUNTS_FILE):
+def load_accounts(user_id):
+    accounts_file = user_accounts_file(user_id)
+    if not os.path.exists(accounts_file):
         return []
-    with open(ACCOUNTS_FILE, encoding="utf-8") as f:
+    with open(accounts_file, encoding="utf-8") as f:
         return json.load(f)
 
 def post_tweet(api_keys, content):
@@ -120,12 +130,23 @@ async def upload_tweets_handler(msg: Message):
 async def handle_files(msg: Message):
     if not await require_auth(msg): return
     doc = msg.document
+    user_id = msg.from_user.id
     if doc.file_name == "accounts.json":
-        await save_uploaded_file(doc.file_id, ACCOUNTS_FILE)
+        await save_uploaded_file(doc.file_id, user_accounts_file(user_id))
         await msg.answer("✅ Accounts saved successfully!")
+        # Create used_tweets.json if not exists
+        used_tweets_path = user_used_tweets_file(user_id)
+        if not os.path.exists(used_tweets_path):
+            with open(used_tweets_path, "w", encoding="utf-8") as f:
+                json.dump([], f)
     elif doc.file_name == "tweets.txt":
-        await save_uploaded_file(doc.file_id, TWEETS_FILE)
+        await save_uploaded_file(doc.file_id, user_tweets_file(user_id))
         await msg.answer("✅ Tweets saved successfully!")
+        # Create used_tweets.json if not exists
+        used_tweets_path = user_used_tweets_file(user_id)
+        if not os.path.exists(used_tweets_path):
+            with open(used_tweets_path, "w", encoding="utf-8") as f:
+                json.dump([], f)
     else:
         await msg.answer("❌ Unsupported file. Please send accounts.json or tweets.txt")
 
@@ -151,14 +172,14 @@ async def token_or_schedule_handler(msg: Message):
         try:
             user_time = date_parser.parse(text, fuzzy=True)
             await msg.answer(f"✅ Tweets scheduled for: <b>{user_time}</b>")
-            scheduler.add_job(post_all_tweets, DateTrigger(run_date=user_time), args=[msg.chat.id])
+            scheduler.add_job(post_all_tweets, DateTrigger(run_date=user_time), args=[msg.chat.id, user_id])
         except Exception as e:
             logging.error(f"Schedule parse error: {e}")
             await msg.answer("❌ Invalid time format. Try again.")
 
-async def post_all_tweets(chat_id):
-    tweets = load_tweets()
-    accounts = load_accounts()
+async def post_all_tweets(chat_id, user_id):
+    tweets = load_tweets(user_id)
+    accounts = load_accounts(user_id)
 
     if not tweets:
         await bot.send_message(chat_id, "⚠ No tweets found! Please upload tweets.txt.")
@@ -180,7 +201,7 @@ async def post_all_tweets(chat_id):
             logging.error(f"Tweet failed for account {i}: {e}")
             links.append(f"❌ Failed: {e}")
 
-    save_used_tweets(tweets[:len(links)])
+    save_used_tweets(user_id, tweets[:len(links)])
 
     for link in links:
         await bot.send_message(chat_id, link)
