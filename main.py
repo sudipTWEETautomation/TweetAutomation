@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Enhanced Telegram Bot for Twitter/X Automation
-Fixed version with IST timezone, tweet link extraction, and hardcoded config
+Fixed version with IST timezone, tweet link extraction, and individual account management
 File: main.py
 """
 
@@ -136,7 +136,7 @@ def extract_tweet_url(page_url: str) -> Optional[str]:
         return None
 
 class TwitterAutomationBot:
-    """Enhanced Twitter automation bot with tweet link extraction and IST timezone support"""
+    """Enhanced Twitter automation bot with individual account management"""
     
     def __init__(self):
         if BOT_TOKEN == "YOUR_BOT_TOKEN_HERE":
@@ -150,12 +150,14 @@ class TwitterAutomationBot:
         self.active_tasks = {}
         
         self._setup_handlers()
-        logger.info("Bot initialized successfully with IST timezone and tweet link extraction")
+        logger.info("Bot initialized successfully with individual account management")
     
     def _setup_handlers(self):
         """Setup all message handlers"""
         self.router.message(CommandStart())(self.cmd_start)
         self.router.message(AuthState.waiting_for_code)(self.auth_code_check)
+        
+        # Original commands
         self.router.message(Command("uploadkeys"))(self.upload_keys)
         self.router.message(Command("uploadtweets"))(self.upload_tweets)
         self.router.message(Command("schedule"))(self.schedule_prompt)
@@ -163,6 +165,12 @@ class TwitterAutomationBot:
         self.router.message(Command("cancel"))(self.cancel_command)
         self.router.message(Command("help"))(self.help_command)
         self.router.message(Command("time"))(self.time_command)
+        
+        # New account management commands
+        self.router.message(Command("addaccount"))(self.add_single_account)
+        self.router.message(Command("listaccounts"))(self.list_accounts)
+        
+        # States
         self.router.message(ScheduleState.waiting_for_time)(self.handle_schedule)
     
     async def cmd_start(self, message: Message, state: FSMContext):
@@ -172,7 +180,10 @@ class TwitterAutomationBot:
             await message.answer(
                 "🔐 <b>Twitter/X Automation Bot</b>\n\n"
                 f"🇮🇳 Current IST Time: {current_time}\n\n"
-                "✨ <b>New Feature:</b> Bot now sends posted tweet links!\n\n"
+                "✨ <b>New Features:</b>\n"
+                "• Individual account management (/addaccount)\n"
+                "• Account status monitoring (/listaccounts)\n"
+                "• Tweet link extraction after posting\n\n"
                 "Welcome! Please enter your authorization code to continue:"
             )
             await state.set_state(AuthState.waiting_for_code)
@@ -200,15 +211,19 @@ class TwitterAutomationBot:
                 self.user_auth.add(message.from_user.id)
                 await message.answer(
                     "✅ <b>Authorization successful!</b>\n\n"
-                    "📋 <b>Available commands:</b>\n"
-                    "📁 /uploadkeys - Upload accounts.json file\n"
+                    "📋 <b>Available commands:</b>\n\n"
+                    "🆕 <b>Account Management:</b>\n"
+                    "📁 /addaccount - Add single account (one by one)\n"
+                    "📋 /listaccounts - Show all accounts with status\n\n"
+                    "📋 <b>Main Commands:</b>\n"
+                    "📁 /uploadkeys - Upload accounts.json (traditional bulk)\n"
                     "📝 /uploadtweets - Upload tweets.txt file\n"
                     "⏰ /schedule - Schedule posting time (IST)\n"
                     "🕐 /time - Show current IST time\n"
                     "📊 /status - Check active tasks\n"
                     "❌ /cancel - Cancel operations\n"
-                    "❓ /help - Show help information\n\n"
-                    "🔗 <b>New:</b> Bot will send posted tweet links after each post!"
+                    "❓ /help - Show detailed help\n\n"
+                    "🔗 <b>Auto Features:</b> Tweet links sent after each post!"
                 )
                 await state.clear()
                 logger.info(f"Successful authentication for user {message.from_user.id}")
@@ -238,6 +253,230 @@ class TwitterAutomationBot:
             f"🌍 Timezone: Asia/Kolkata (UTC+5:30)"
         )
 
+    async def add_single_account(self, message: Message):
+        """Add single account - NEW FEATURE"""
+        if not self._check_auth(message.from_user.id):
+            await message.answer("🔒 Unauthorized. Use /start to login.")
+            return
+
+        if not message.document:
+            await message.answer(
+                "📎 <b>Upload Single Account JSON File</b>\n\n"
+                "💡 <b>Format:</b> Single account object\n"
+                "<code>{\n"
+                '  "cookies": [\n'
+                '    {"name": "auth_token", "value": "your_token", "domain": ".x.com"},\n'
+                '    {"name": "ct0", "value": "your_ct0", "domain": ".x.com"},\n'
+                '    {"name": "twid", "value": "u%3Dyour_userid", "domain": ".x.com"}\n'
+                '  ],\n'
+                '  "origins": [{"origin": "https://x.com", "localStorage": []}]\n'
+                "}</code>\n\n"
+                "📏 <b>Max size:</b> 1MB per account"
+            )
+            return
+
+        try:
+            if message.document.file_size > 1024 * 1024:  # 1MB limit per account
+                await message.answer("❌ File too large. Maximum size is 1MB per account.")
+                return
+
+            user_dir = DATA_DIR / str(message.from_user.id)
+            user_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Load existing accounts
+            accounts_file = user_dir / "accounts.json"
+            if accounts_file.exists():
+                async with aiofiles.open(accounts_file, 'r') as f:
+                    accounts = json.loads(await f.read())
+            else:
+                accounts = []
+
+            # Download new account file
+            temp_file = user_dir / "temp_account.json"
+            await self.bot.download(message.document, destination=temp_file)
+            
+            # Load and validate new account
+            async with aiofiles.open(temp_file, 'r') as f:
+                new_account = json.loads(await f.read())
+            
+            # Validate single account structure
+            if not isinstance(new_account, dict) or 'cookies' not in new_account:
+                await message.answer("❌ Invalid account format. Must contain 'cookies' field.")
+                temp_file.unlink()
+                return
+
+            # Check for required cookies
+            cookie_names = [cookie.get('name') for cookie in new_account.get('cookies', [])]
+            required_cookies = ['auth_token', 'ct0', 'twid']
+            missing_cookies = [cookie for cookie in required_cookies if cookie not in cookie_names]
+            
+            if missing_cookies:
+                await message.answer(f"⚠️ Missing cookies: {', '.join(missing_cookies)}\nAccount added but may not work properly.")
+
+            # Check if account already exists (by twid or auth_token)
+            existing_ids = []
+            for account in accounts:
+                for cookie in account.get('cookies', []):
+                    if cookie.get('name') in ['twid', 'auth_token']:
+                        existing_ids.append(cookie.get('value', ''))
+
+            # Check new account for duplicates
+            new_account_id = None
+            for cookie in new_account.get('cookies', []):
+                if cookie.get('name') in ['twid', 'auth_token']:
+                    if cookie.get('value') in existing_ids:
+                        await message.answer("⚠️ This account already exists!")
+                        temp_file.unlink()
+                        return
+                    if cookie.get('name') == 'twid':
+                        new_account_id = cookie.get('value', '')
+
+            # Add to accounts list
+            accounts.append(new_account)
+            
+            # Save updated accounts
+            async with aiofiles.open(accounts_file, 'w') as f:
+                await f.write(json.dumps(accounts, indent=2))
+            
+            # Clean up temp file
+            temp_file.unlink()
+            
+            # Extract user info for display
+            display_info = "New Account"
+            if new_account_id and 'u%3D' in new_account_id:
+                userid = new_account_id.split('u%3D')[1][:10]
+                display_info = f"ID: {userid}..."
+            
+            await message.answer(
+                f"✅ <b>Account Added Successfully!</b>\n\n"
+                f"🆔 <b>Account:</b> {display_info}\n"
+                f"📊 <b>Total Accounts:</b> {len(accounts)}\n"
+                f"📍 <b>Position:</b> Account #{len(accounts)}\n"
+                f"💾 <b>Status:</b> Saved to accounts.json\n\n"
+                f"💡 Use /listaccounts to see all accounts\n"
+                f"🚀 Use /addaccount to add more accounts"
+            )
+            
+            logger.info(f"Single account added by user {message.from_user.id}. Total: {len(accounts)}")
+
+        except json.JSONDecodeError:
+            await message.answer("❌ Invalid JSON format. Please check your file.")
+            if 'temp_file' in locals() and temp_file.exists():
+                temp_file.unlink()
+        except Exception as e:
+            logger.error(f"Error adding single account: {e}")
+            await message.answer("❌ Error adding account. Please try again.")
+            if 'temp_file' in locals() and temp_file.exists():
+                temp_file.unlink()
+
+    async def list_accounts(self, message: Message):
+        """List all accounts with details - NEW FEATURE"""
+        if not self._check_auth(message.from_user.id):
+            await message.answer("🔒 Unauthorized. Use /start to login.")
+            return
+
+        try:
+            user_dir = DATA_DIR / str(message.from_user.id)
+            accounts_file = user_dir / "accounts.json"
+            
+            if not accounts_file.exists():
+                await message.answer(
+                    "📋 <b>No Accounts Found</b>\n\n"
+                    "💡 Use /addaccount to add your first account\n"
+                    "📁 Or use /uploadkeys for bulk upload"
+                )
+                return
+
+            async with aiofiles.open(accounts_file, 'r') as f:
+                accounts = json.loads(await f.read())
+
+            if not accounts:
+                await message.answer(
+                    "📋 <b>No Accounts Found</b>\n\n"
+                    "💡 Use /addaccount to add your first account\n"
+                    "📁 Or use /uploadkeys for bulk upload"
+                )
+                return
+
+            # Build detailed account list
+            account_list = []
+            for i, account in enumerate(accounts, 1):
+                # Extract account info
+                username = "Unknown"
+                auth_status = "❓"
+                cookie_count = len(account.get('cookies', []))
+                
+                cookies = account.get('cookies', [])
+                has_auth = False
+                has_ct0 = False
+                has_twid = False
+                
+                for cookie in cookies:
+                    if cookie.get('name') == 'twid':
+                        has_twid = True
+                        twid_value = cookie.get('value', '')
+                        if 'u%3D' in twid_value:
+                            userid = twid_value.split('u%3D')[1]
+                            username = f"ID: {userid[:12]}..."
+                    elif cookie.get('name') == 'auth_token':
+                        has_auth = True
+                        if cookie.get('value') and len(cookie.get('value', '')) > 10:
+                            pass
+                    elif cookie.get('name') == 'ct0':
+                        has_ct0 = True
+
+                # Determine status
+                if has_auth and has_ct0 and has_twid:
+                    auth_status = "✅"
+                elif has_auth and has_ct0:
+                    auth_status = "⚠️"
+                else:
+                    auth_status = "❌"
+
+                account_list.append(f"{i}. {username} {auth_status} ({cookie_count} cookies)")
+
+            # Create response (split if too long)
+            accounts_text = "\n".join(account_list)
+            current_time = ist_now().strftime('%d %B %Y, %I:%M %p IST')
+            
+            # Create summary
+            ready_count = sum(1 for line in account_list if "✅" in line)
+            partial_count = sum(1 for line in account_list if "⚠️" in line)
+            
+            response = (
+                f"📋 <b>Your Twitter Accounts:</b>\n\n"
+                f"{accounts_text}\n\n"
+                f"📊 <b>Summary:</b>\n"
+                f"• Total Accounts: {len(accounts)}\n"
+                f"• Ready to Use: {ready_count}\n"
+                f"• Partial Setup: {partial_count}\n"
+                f"• Need Attention: {len(accounts) - ready_count - partial_count}\n\n"
+                f"🕐 <b>Listed at:</b> {current_time}\n\n"
+                f"💡 <b>Legend:</b>\n"
+                f"✅ = Ready (auth_token + ct0 + twid)\n"
+                f"⚠️ = Partial (missing twid)\n"
+                f"❌ = Incomplete (missing required cookies)\n\n"
+                f"🚀 Use /addaccount to add more accounts"
+            )
+
+            # Split long messages
+            if len(response) > 4000:
+                # Send in parts
+                parts = [
+                    f"📋 <b>Your Twitter Accounts:</b>\n\n{accounts_text}",
+                    f"📊 <b>Summary:</b>\n• Total: {len(accounts)}\n• Ready: {ready_count}\n• Partial: {partial_count}\n\n💡 Legend: ✅=Ready ⚠️=Partial ❌=Incomplete"
+                ]
+                for part in parts:
+                    await message.answer(part)
+            else:
+                await message.answer(response)
+
+        except json.JSONDecodeError:
+            await message.answer("❌ Corrupted accounts file. Please re-add accounts using /addaccount.")
+        except Exception as e:
+            logger.error(f"Error listing accounts: {e}")
+            await message.answer("❌ Error retrieving accounts list.")
+
     async def upload_keys(self, message: Message):
         """Enhanced accounts file upload with validation"""
         if not self._check_auth(message.from_user.id):
@@ -248,7 +487,8 @@ class TwitterAutomationBot:
             await message.answer(
                 "📎 Please upload your accounts.json file.\n\n"
                 "💡 <b>Format:</b> Playwright storage state JSON file\n"
-                "📏 <b>Max size:</b> 10MB"
+                "📏 <b>Max size:</b> 10MB\n\n"
+                "🆕 <b>Alternative:</b> Use /addaccount to add accounts one by one"
             )
             return
 
@@ -282,7 +522,8 @@ class TwitterAutomationBot:
                 f"✅ <b>Accounts uploaded successfully!</b>\n"
                 f"📊 Found {len(data)} account(s)\n"
                 f"💾 Saved to: accounts.json\n"
-                f"🔗 Bot will extract tweet links after posting"
+                f"🔗 Bot will extract tweet links after posting\n\n"
+                f"💡 Use /listaccounts to see account details"
             )
             logger.info(f"Accounts file uploaded by user {message.from_user.id} ({len(data)} accounts)")
 
@@ -357,22 +598,42 @@ class TwitterAutomationBot:
             await message.answer("❌ Error uploading file. Please try again.")
 
     async def help_command(self, message: Message):
-        """Help command with detailed instructions"""
+        """Help command with enhanced account management"""
         if not self._check_auth(message.from_user.id):
             await message.answer("🔒 Unauthorized. Use /start to login.")
             return
 
         help_text = """
-🤖 <b>Twitter/X Automation Bot - Help</b>
+🤖 <b>Twitter/X Automation Bot - Enhanced Help</b>
 
-<b>📋 Commands:</b>
-• /uploadkeys - Upload accounts.json (Playwright storage state)
-• /uploadtweets - Upload tweets.txt (one tweet per paragraph)
-• /schedule - Schedule posting time (IST timezone)
+<b>🆕 Account Management:</b>
+• /addaccount - Add single account (one by one)
+• /listaccounts - Show all accounts with status
+
+<b>📋 Main Commands:</b>
+• /uploadkeys - Upload accounts.json (traditional bulk)
+• /uploadtweets - Upload tweets.txt
+• /schedule - Schedule posting time (IST)
 • /time - Show current IST time
 • /status - Check current tasks
 • /cancel - Cancel active operations
 • /help - Show this help
+
+<b>🔄 Recommended Workflow:</b>
+1. Use /addaccount to add accounts one by one
+2. Use /listaccounts to verify all accounts
+3. Use /uploadtweets to upload your tweets
+4. Use /schedule to start automated posting
+
+<b>📄 Single Account Format:</b>
+<code>{
+  "cookies": [
+    {"name": "auth_token", "value": "your_token", "domain": ".x.com"},
+    {"name": "ct0", "value": "your_ct0", "domain": ".x.com"},
+    {"name": "twid", "value": "u%3Dyour_userid", "domain": ".x.com"}
+  ],
+  "origins": [{"origin": "https://x.com", "localStorage": []}]
+}</code>
 
 <b>📅 IST Time Formats:</b>
 • 3 August 2025 @12:31PM
@@ -380,29 +641,22 @@ class TwitterAutomationBot:
 • 2025-08-03 12:31
 • 3 August 2025 12:31
 
-<b>📄 File Formats:</b>
-<b>accounts.json:</b> Playwright browser storage state
-<b>tweets.txt:</b> Plain text, separate tweets with double newlines
+<b>✨ Enhanced Features:</b>
+• Individual account management
+• Duplicate account detection
+• Account status monitoring
+• Automatic tweet link extraction
+• Real-time posting progress
 
 <b>🇮🇳 Timezone:</b>
 All times are in IST (Indian Standard Time, UTC+5:30)
 Current IST time: Use /time command
-
-<b>🔗 Tweet Links Feature:</b>
-• Bot automatically extracts tweet URLs after posting
-• Sends clickable links for each posted tweet
-• Works with both successful and retry attempts
 
 <b>⚠️ Important:</b>
 • Respect Twitter/X terms of service
 • Use reasonable posting intervals (5-15 seconds)
 • Monitor for rate limits
 • Keep credentials secure
-
-<b>🛡️ Security:</b>
-• Files are stored securely per user
-• Comprehensive logging enabled
-• Anti-detection measures included
         """
         await message.answer(help_text)
 
@@ -460,7 +714,7 @@ Current IST time: Use /time command
                 return
                 
             if not accounts_file.exists():
-                await message.answer("❌ Please upload accounts.json file first using /uploadkeys")
+                await message.answer("❌ Please upload accounts first using /uploadkeys or /addaccount")
                 return
 
             # Load files
@@ -482,8 +736,8 @@ Current IST time: Use /time command
             # Validate tweet/account ratio
             if len(tweets) > len(accounts):
                 await message.answer(
-                    f"⚠️ <b>Warning:</b> {len(tweets)} tweets but only {len(accounts)} accounts.\n"
-                    f"Only first {len(accounts)} tweets will be posted."
+                    f"⚠️ <b>Notice:</b> {len(tweets)} tweets but only {len(accounts)} accounts.\n"
+                    f"Tweets will cycle through accounts. Each account may post multiple tweets."
                 )
 
             # Cancel existing task
@@ -734,14 +988,18 @@ Current IST time: Use /time command
             
             results = []
             tweet_links = []
-            total_tweets = min(len(tweets), len(accounts))
+            total_tweets = len(tweets)
             
-            for i, (tweet, account) in enumerate(zip(tweets, accounts), 1):
+            for i, tweet in enumerate(tweets, 1):
                 try:
                     # Add random delay between posts
                     if i > 1:
                         delay = random.uniform(POST_DELAY_MIN, POST_DELAY_MAX)
                         await asyncio.sleep(delay)
+                    
+                    # Select account (cycle through accounts)
+                    account_index = (i - 1) % len(accounts)
+                    account = accounts[account_index]
                     
                     # Post tweet and get URL
                     result, tweet_url = await self.post_tweet(tweet[:MAX_TWEET_LENGTH], account)
@@ -753,17 +1011,19 @@ Current IST time: Use /time command
                         await message.answer(
                             f"✅ <b>Tweet {i} Posted!</b>\n"
                             f"🔗 Link: {tweet_url}\n"
+                            f"👤 Account: #{account_index + 1}\n"
                             f"📝 Text: {tweet[:50]}{'...' if len(tweet) > 50 else ''}"
                         )
                     else:
                         await message.answer(
                             f"✅ <b>Tweet {i} Posted!</b>\n"
                             f"⚠️ Could not extract tweet link\n"
+                            f"👤 Account: #{account_index + 1}\n"
                             f"📝 Text: {tweet[:50]}{'...' if len(tweet) > 50 else ''}"
                         )
                     
                     # Progress updates
-                    if i % 3 == 0 or i == total_tweets:
+                    if i % 5 == 0 or i == total_tweets:
                         progress = int((i / total_tweets) * 100)
                         current_time = ist_now().strftime('%I:%M %p IST')
                         await message.answer(f"📊 Progress: {i}/{total_tweets} ({progress}%)\n🇮🇳 Time: {current_time}")
@@ -788,10 +1048,17 @@ Current IST time: Use /time command
             
             # Send summary of all tweet links
             if tweet_links:
+                # Split links if too many
                 links_text = "\n".join(tweet_links)
-                await message.answer(
-                    f"{summary}🔗 <b>All Tweet Links:</b>\n{links_text}"
-                )
+                if len(links_text) > 3000:
+                    # Send in batches
+                    batch_size = 10
+                    for i in range(0, len(tweet_links), batch_size):
+                        batch = tweet_links[i:i+batch_size]
+                        batch_text = "\n".join(batch)
+                        await message.answer(f"🔗 <b>Tweet Links (Batch {i//batch_size + 1}):</b>\n{batch_text}")
+                else:
+                    await message.answer(f"{summary}🔗 <b>All Tweet Links:</b>\n{links_text}")
             else:
                 await message.answer(summary + "⚠️ No tweet links could be extracted.")
                 
@@ -813,7 +1080,7 @@ Current IST time: Use /time command
     async def start_bot(self):
         """Start the bot with proper error handling"""
         try:
-            logger.info("Starting Twitter/X Automation Bot with IST timezone and tweet link extraction...")
+            logger.info("Starting Twitter/X Automation Bot with enhanced account management...")
             logger.info(f"Data directory: {DATA_DIR.absolute()}")
             logger.info(f"Browser headless mode: {BROWSER_HEADLESS}")
             logger.info(f"Tweet link wait time: {TWEET_LINK_WAIT_TIME} seconds")
@@ -838,6 +1105,7 @@ def main():
         
         print(f"🇮🇳 Starting bot with IST timezone...")
         print(f"🔗 Tweet link extraction: ENABLED")
+        print(f"🆕 Individual account management: ENABLED")
         print(f"🕐 Current IST time: {ist_now().strftime('%d %B %Y, %I:%M %p IST')}")
         
         # Create and start bot
