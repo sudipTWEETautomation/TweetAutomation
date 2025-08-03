@@ -1,4 +1,4 @@
-aiogram==3.0.0b10
+aiogram==3.0.0
 playwright==1.35.0
 aiofiles==23.1.0
 jsonschema==4.17.3
