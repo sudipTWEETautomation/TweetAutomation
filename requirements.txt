@@ -2,3 +2,4 @@ aiogram==3.3.0
 tweepy==4.14.0
 python-dateutil==2.9.0
 apscheduler==3.10.4
+pytz
