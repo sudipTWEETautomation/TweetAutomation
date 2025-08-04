@@ -300,28 +300,28 @@ class TwitterAutomationBot:
     async def cmd_start(self, message: Message, state: FSMContext):
         """Start command handler"""
         if self._is_blocked(message.from_user.id):
-            await message.answer("ðŸš« You are blocked from using this bot.")
+            await message.answer("🚫 You are blocked from using this bot.")
             return
 
         current_time = ist_now().strftime('%d %B %Y, %I:%M %p IST')
         
         if not self._check_auth(message.from_user.id):
             await message.answer(
-                "ðŸ” <b>Twitter/X Automation Bot</b>\n\n"
-                f"ðŸ‡®ðŸ‡³ Current IST Time: {current_time}\n\n"
-                "âœ¨ <b>New Features:</b>\n"
-                "â€¢ Individual account management (/addaccount)\n"
-                "â€¢ Account status monitoring (/listaccounts)\n"
-                "â€¢ Tweet link extraction after posting\n"
-                "â€¢ Admin user management system\n\n"
+                "🔐 <b>Twitter/X Automation Bot</b>\n\n"
+                f"🕒 Current IST Time: {current_time}\n\n"
+                "✨ <b>New Features:</b>\n"
+                "• Individual account management (/addaccount)\n"
+                "• Account status monitoring (/listaccounts)\n"
+                "• Tweet link extraction after posting\n"
+                "• Admin user management system\n\n"
                 "Welcome! Please enter your authorization code to continue:"
             )
             await state.set_state(AuthState.waiting_for_code)
         else:
-            admin_info = "\nðŸ”§ <b>Admin Commands Available</b>" if self._is_admin(message.from_user.id) else ""
+            admin_info = "\n🔧 <b>Admin Commands Available</b>" if self._is_admin(message.from_user.id) else ""
             await message.answer(
-                "ðŸ” <b>Twitter/X Automation Bot</b>\n\n"
-                f"ðŸ‡®ðŸ‡³ Current IST Time: {current_time}\n\n"
+                "🔐 <b>Twitter/X Automation Bot</b>\n\n"
+                f"🕒 Current IST Time: {current_time}\n\n"
                 "You are already authorized. Use /help to see commands."
                 f"{admin_info}"
             )
@@ -330,7 +330,7 @@ class TwitterAutomationBot:
     async def auth_code_check(self, message: Message, state: FSMContext):
         """Enhanced authentication with input validation"""
         if self._is_blocked(message.from_user.id):
-            await message.answer("ðŸš« You are blocked from using this bot.")
+            await message.answer("🚫 You are blocked from using this bot.")
             return
 
         code = message.text.strip() if message.text else ""
@@ -350,7 +350,7 @@ class TwitterAutomationBot:
             admin_commands = ""
             if self._is_admin(message.from_user.id):
                 admin_commands = (
-                    "\n\nðŸ”§ <b>Admin Commands:</b>\n"
+                    "\n\n🔧 <b>Admin Commands:</b>\n"
                     "/setcode - Change admin code\n"
                     "/allusers - List all users\n"
                     "/block - Block user\n"
@@ -359,26 +359,26 @@ class TwitterAutomationBot:
                 )
             
             await message.answer(
-                "âœ… <b>Authorization successful!</b>\n\n"
-                "ðŸ“‹ <b>Available commands:</b>\n\n"
-                "ðŸ†• <b>Account Management:</b>\n"
-                "ðŸ“ /addaccount - Add single account (one by one)\n"
-                "ðŸ“‹ /listaccounts - Show all accounts with status\n\n"
-                "ðŸ“‹ <b>Main Commands:</b>\n"
-                "ðŸ“ /uploadkeys - Upload accounts.json (traditional bulk)\n"
-                "ðŸ“ /uploadtweets - Upload tweets.txt file\n"
-                "â° /schedule - Schedule posting time (IST)\n"
-                "ðŸ• /time - Show current IST time\n"
-                "ðŸ“Š /status - Check active tasks\n"
-                "âŒ /cancel - Cancel operations\n"
-                "â“ /help - Show detailed help\n\n"
-                "ðŸ”— <b>Auto Features:</b> Tweet links sent after each post!"
+                "✅ <b>Authorization successful!</b>\n\n"
+                "📋 <b>Available commands:</b>\n\n"
+                "🆕 <b>Account Management:</b>\n"
+                "📁 /addaccount - Add single account (one by one)\n"
+                "📋 /listaccounts - Show all accounts with status\n\n"
+                "📋 <b>Main Commands:</b>\n"
+                "📁 /uploadkeys - Upload accounts.json (traditional bulk)\n"
+                "📁 /uploadtweets - Upload tweets.txt file\n"
+                "⏰ /schedule - Schedule posting time (IST)\n"
+                "🕒 /time - Show current IST time\n"
+                "📊 /status - Check active tasks\n"
+                "❌ /cancel - Cancel operations\n"
+                "❓ /help - Show detailed help\n\n"
+                "🔗 <b>Auto Features:</b> Tweet links sent after each post!"
                 f"{admin_commands}"
             )
             await state.clear()
             logger.info(f"Successful authentication for user {message.from_user.id}")
         else:
-            await message.answer("âŒ Incorrect code. Please try again.")
+            await message.answer("❌ Incorrect code. Please try again.")
             logger.warning(f"Failed authentication from user {message.from_user.id}")
 
     # Admin Commands Implementation
@@ -386,22 +386,22 @@ class TwitterAutomationBot:
     async def admin_set_code(self, message: Message, state: FSMContext):
         """Admin command to set new approval code"""
         if not self._is_admin(message.from_user.id):
-            await message.answer("ðŸš« Only admin can change the approval code.")
+            await message.answer("🚫 Only admin can change the approval code.")
             return
         
-        await message.answer("ðŸ“ Please send the new admin approval code:")
+        await message.answer("🔑 Please send the new admin approval code:")
         await state.set_state(ChangeCodeState.waiting_for_new_code)
 
     async def handle_new_code(self, message: Message, state: FSMContext):
         """Handle new admin code input"""
         if not self._is_admin(message.from_user.id):
-            await message.answer("ðŸš« Only admin can change the approval code.")
+            await message.answer("🚫 Only admin can change the approval code.")
             await state.clear()
             return
 
         new_code = message.text.strip()
         if len(new_code) < 4:
-            await message.answer("âŒ Code too short. Please provide at least 4 characters.")
+            await message.answer("❌ Code too short. Please provide at least 4 characters.")
             return
 
         # Delete the message containing the new code for security
@@ -412,22 +412,22 @@ class TwitterAutomationBot:
 
         success = self._save_admin_code(new_code)
         if success:
-            await message.answer(f"âœ… Admin approval code changed successfully!")
+            await message.answer(f"✅ Admin approval code changed successfully!")
             logger.info(f"Admin code changed by user {message.from_user.id}")
         else:
-            await message.answer("âŒ Failed to save new code, please try again.")
+            await message.answer("❌ Failed to save new code, please try again.")
         
         await state.clear()
 
     async def admin_list_users(self, message: Message):
         """Admin command to list all users"""
         if not self._is_admin(message.from_user.id):
-            await message.answer("ðŸš« Only admin can view user list.")
+            await message.answer("🚫 Only admin can view user list.")
             return
 
         users_text = ""
         for uid in self.authorized_users:
-            block_status = "ðŸš« Blocked" if uid in self.blocked_users else "âœ… Active"
+            block_status = "🚫 Blocked" if uid in self.blocked_users else "✅ Active"
             users_text += f"User ID: <code>{uid}</code> - Status: {block_status}\n"
         
         if not users_text:
@@ -435,27 +435,27 @@ class TwitterAutomationBot:
 
         blocked_text = ""
         if self.blocked_users:
-            blocked_text = f"\n\nðŸš« <b>Blocked Users:</b>\n"
+            blocked_text = f"\n\n🚫 <b>Blocked Users:</b>\n"
             for uid in self.blocked_users:
                 blocked_text += f"User ID: <code>{uid}</code>\n"
 
         await message.answer(
-            f"ðŸ‘¥ <b>User Management Dashboard:</b>\n\n"
-            f"ðŸ“Š <b>Statistics:</b>\n"
-            f"â€¢ Total Authorized: {len(self.authorized_users)}\n"
-            f"â€¢ Active Users: {len([u for u in self.authorized_users if u not in self.blocked_users])}\n"
-            f"â€¢ Blocked Users: {len(self.blocked_users)}\n\n"
-            f"âœ… <b>Authorized Users:</b>\n{users_text}"
+            f"👥 <b>User Management Dashboard:</b>\n\n"
+            f"📊 <b>Statistics:</b>\n"
+            f"• Total Authorized: {len(self.authorized_users)}\n"
+            f"• Active Users: {len([u for u in self.authorized_users if u not in self.blocked_users])}\n"
+            f"• Blocked Users: {len(self.blocked_users)}\n\n"
+            f"✅ <b>Authorized Users:</b>\n{users_text}"
             f"{blocked_text}"
         )
 
     async def admin_block_user(self, message: Message, state: FSMContext):
         """Admin command to block a user"""
         if not self._is_admin(message.from_user.id):
-            await message.answer("ðŸš« Only admin can block users.")
+            await message.answer("🚫 Only admin can block users.")
             return
         
-        await message.answer("ðŸ”’ Please reply with User ID to block:")
+        await message.answer("🔒 Please reply with User ID to block:")
         await state.set_state(UserBlockState.waiting_for_block_userid)
 
     async def handle_block_userid(self, message: Message, state: FSMContext):
@@ -463,29 +463,29 @@ class TwitterAutomationBot:
         try:
             uid = int(message.text.strip())
         except ValueError:
-            await message.answer("âŒ Invalid user ID format. Please send a numeric User ID.")
+            await message.answer("❌ Invalid user ID format. Please send a numeric User ID.")
             return
 
         if uid == YOUR_TELEGRAM_USER_ID:
-            await message.answer("âŒ Cannot block admin user.")
+            await message.answer("❌ Cannot block admin user.")
             await state.clear()
             return
 
         if self._block_user(uid):
-            await message.answer(f"ðŸš« User <code>{uid}</code> has been blocked successfully.")
+            await message.answer(f"🚫 User <code>{uid}</code> has been blocked successfully.")
             logger.info(f"User {uid} blocked by admin {message.from_user.id}")
         else:
-            await message.answer(f"âš ï¸ User <code>{uid}</code> was already blocked.")
+            await message.answer(f"⚠️ User <code>{uid}</code> was already blocked.")
         
         await state.clear()
 
     async def admin_unblock_user(self, message: Message, state: FSMContext):
         """Admin command to unblock a user"""
         if not self._is_admin(message.from_user.id):
-            await message.answer("ðŸš« Only admin can unblock users.")
+            await message.answer("🚫 Only admin can unblock users.")
             return
         
-        await message.answer("ðŸ”“ Please reply with User ID to unblock:")
+        await message.answer("🔓 Please reply with User ID to unblock:")
         await state.set_state(UserUnblockState.waiting_for_unblock_userid)
 
     async def handle_unblock_userid(self, message: Message, state: FSMContext):
@@ -493,24 +493,24 @@ class TwitterAutomationBot:
         try:
             uid = int(message.text.strip())
         except ValueError:
-            await message.answer("âŒ Invalid user ID format. Please send a numeric User ID.")
+            await message.answer("❌ Invalid user ID format. Please send a numeric User ID.")
             return
 
         if self._unblock_user(uid):
-            await message.answer(f"âœ… User <code>{uid}</code> has been unblocked successfully.")
+            await message.answer(f"✅ User <code>{uid}</code> has been unblocked successfully.")
             logger.info(f"User {uid} unblocked by admin {message.from_user.id}")
         else:
-            await message.answer(f"âš ï¸ User <code>{uid}</code> is not in blocked list.")
+            await message.answer(f"⚠️ User <code>{uid}</code> is not in blocked list.")
         
         await state.clear()
 
     async def admin_get_user_data(self, message: Message, state: FSMContext):
         """Admin command to get user data"""
         if not self._is_admin(message.from_user.id):
-            await message.answer("ðŸš« Only admin can access user data.")
+            await message.answer("🚫 Only admin can access user data.")
             return
         
-        await message.answer("ðŸ” Please reply with User ID to get data:")
+        await message.answer("🔍 Please reply with User ID to get data:")
         await state.set_state(GetUserDataState.waiting_for_user_id)
 
     async def handle_get_user_data(self, message: Message, state: FSMContext):
@@ -518,7 +518,7 @@ class TwitterAutomationBot:
         try:
             uid = int(message.text.strip())
         except ValueError:
-            await message.answer("âŒ Invalid user ID format. Please send a numeric User ID.")
+            await message.answer("❌ Invalid user ID format. Please send a numeric User ID.")
             return
 
         user_dir = DATA_DIR / str(uid)
@@ -527,13 +527,13 @@ class TwitterAutomationBot:
 
         # Check if user exists
         if uid not in self.authorized_users and uid not in self.blocked_users:
-            await message.answer(f"âŒ User <code>{uid}</code> not found in database.")
+            await message.answer(f"❌ User <code>{uid}</code> not found in database.")
             await state.clear()
             return
 
         # User status
-        status = "ðŸš« Blocked" if uid in self.blocked_users else "âœ… Active"
-        auth_status = "âœ… Authorized" if uid in self.authorized_users else "âŒ Not Authorized"
+        status = "🚫 Blocked" if uid in self.blocked_users else "✅ Active"
+        auth_status = "✅ Authorized" if uid in self.authorized_users else "❌ Not Authorized"
 
         # Check files
         accounts_count = 0
@@ -557,23 +557,23 @@ class TwitterAutomationBot:
 
         # Send user data summary
         await message.answer(
-            f"ðŸ“Š <b>User Data Report:</b>\n\n"
-            f"ðŸ†” <b>User ID:</b> <code>{uid}</code>\n"
-            f"ðŸ“ˆ <b>Status:</b> {status}\n"
-            f"ðŸ”‘ <b>Authorization:</b> {auth_status}\n\n"
-            f"ðŸ“ <b>Files:</b>\n"
-            f"â€¢ Accounts: {accounts_count} account(s)\n"
-            f"â€¢ Tweets: {tweets_count} tweet(s)\n\n"
-            f"ðŸ“‚ <b>Data Directory:</b> <code>data/{uid}/</code>"
+            f"📊 <b>User Data Report:</b>\n\n"
+            f"🆔 <b>User ID:</b> <code>{uid}</code>\n"
+            f"📈 <b>Status:</b> {status}\n"
+            f"🔑 <b>Authorization:</b> {auth_status}\n\n"
+            f"📁 <b>Files:</b>\n"
+            f"• Accounts: {accounts_count} account(s)\n"
+            f"• Tweets: {tweets_count} tweet(s)\n\n"
+            f"📂 <b>Data Directory:</b> <code>data/{uid}/</code>"
         )
 
         # Offer to send files if they exist
         if accounts_count > 0 or tweets_count > 0:
             await message.answer(
-                f"ðŸ“¤ <b>Available Files for User {uid}:</b>\n\n"
+                f"📤 <b>Available Files for User {uid}:</b>\n\n"
                 f"Use these commands to download:\n"
-                f"â€¢ Send 'accounts {uid}' to get accounts.json\n"
-                f"â€¢ Send 'tweets {uid}' to get tweets.txt"
+                f"• Send 'accounts {uid}' to get accounts.json\n"
+                f"• Send 'tweets {uid}' to get tweets.txt"
             )
 
         await state.clear()
@@ -581,15 +581,15 @@ class TwitterAutomationBot:
     async def time_command(self, message: Message):
         """Show current IST time"""
         if not self._check_auth(message.from_user.id):
-            await message.answer("ðŸ”’ Unauthorized. Use /start to login.")
+            await message.answer("🔒 Unauthorized. Use /start to login.")
             return
         
         current_time = ist_now()
         await message.answer(
-            f"ðŸ• <b>Current Time (IST):</b>\n"
-            f"ðŸ“… {current_time.strftime('%d %B %Y')}\n"
-            f"â° {current_time.strftime('%I:%M %p')}\n"
-            f"ðŸŒ Timezone: Asia/Kolkata (UTC+5:30)"
+            f"🕒 <b>Current Time (IST):</b>\n"
+            f"📅 {current_time.strftime('%d %B %Y')}\n"
+            f"⏰ {current_time.strftime('%I:%M %p')}\n"
+            f"🌍 Timezone: Asia/Kolkata (UTC+5:30)"
         )
 
     # FIXED FILE UPLOAD HANDLERS
@@ -597,32 +597,32 @@ class TwitterAutomationBot:
     async def upload_keys_command(self, message: Message, state: FSMContext):
         """Command to initiate keys upload - sets state"""
         if not self._check_auth(message.from_user.id):
-            await message.answer("ðŸ”’ Unauthorized. Use /start to login.")
+            await message.answer("🔒 Unauthorized. Use /start to login.")
             return
 
         await message.answer(
-            "ðŸ“Ž Please upload your accounts.json file.\n\n"
-            "ðŸ’¡ <b>Format:</b> Playwright storage state JSON file\n"
-            "ðŸ“ <b>Max size:</b> 10MB\n\n"
-            "ðŸ†• <b>Alternative:</b> Use /addaccount to add accounts one by one"
+            "📎 Please upload your accounts.json file.\n\n"
+            "💡 <b>Format:</b> Playwright storage state JSON file\n"
+            "📏 <b>Max size:</b> 10MB\n\n"
+            "🆕 <b>Alternative:</b> Use /addaccount to add accounts one by one"
         )
         await state.set_state(UploadKeysState.waiting_for_keys_file)
 
     async def handle_keys_file(self, message: Message, state: FSMContext):
         """Handle accounts.json file upload"""
         if not self._check_auth(message.from_user.id):
-            await message.answer("ðŸ”’ Unauthorized. Use /start to login.")
+            await message.answer("🔒 Unauthorized. Use /start to login.")
             await state.clear()
             return
 
         try:
             # Validate file
             if not message.document.file_name.endswith('.json'):
-                await message.answer("âŒ Please upload a JSON file (.json extension required)")
+                await message.answer("❌ Please upload a JSON file (.json extension required)")
                 return
 
             if message.document.file_size > MAX_FILE_SIZE:
-                await message.answer(f"âŒ File too large. Maximum size is {MAX_FILE_SIZE//1024//1024}MB")
+                await message.answer(f"❌ File too large. Maximum size is {MAX_FILE_SIZE//1024//1024}MB")
                 return
 
             # Create user directory
@@ -643,35 +643,35 @@ class TwitterAutomationBot:
             jsonschema.validate(data, ACCOUNTS_SCHEMA)
 
             await message.answer(
-                f"âœ… <b>Accounts uploaded successfully!</b>\n"
-                f"ðŸ“Š Found {len(data)} account(s)\n"
-                f"ðŸ’¾ Saved to: accounts.json\n"
-                f"ðŸ”— Bot will extract tweet links after posting\n\n"
-                f"ðŸ’¡ Use /listaccounts to see account details"
+                f"✅ <b>Accounts uploaded successfully!</b>\n"
+                f"📊 Found {len(data)} account(s)\n"
+                f"💾 Saved to: accounts.json\n"
+                f"🔗 Bot will extract tweet links after posting\n\n"
+                f"💡 Use /listaccounts to see account details"
             )
             logger.info(f"Accounts file uploaded by user {message.from_user.id} ({len(data)} accounts)")
 
         except json.JSONDecodeError:
-            await message.answer("âŒ Invalid JSON file format. Please check your file.")
+            await message.answer("❌ Invalid JSON file format. Please check your file.")
         except jsonschema.ValidationError as e:
-            await message.answer(f"âŒ Invalid file structure: {e.message}")
+            await message.answer(f"❌ Invalid file structure: {e.message}")
         except Exception as e:
             logger.error(f"Error uploading accounts: {e}")
-            await message.answer("âŒ Error uploading file. Please try again.")
+            await message.answer("❌ Error uploading file. Please try again.")
         finally:
             await state.clear()
 
     async def upload_tweets_command(self, message: Message, state: FSMContext):
         """Command to initiate tweets upload - sets state"""
         if not self._check_auth(message.from_user.id):
-            await message.answer("ðŸ”’ Unauthorized. Use /start to login.")
+            await message.answer("🔒 Unauthorized. Use /start to login.")
             return
 
         await message.answer(
-            "ðŸ“Ž Please upload your tweets.txt file.\n\n"
-            "ðŸ’¡ <b>Format:</b> Plain text, separate tweets with double newline\n"
-            "ðŸ“ <b>Max size:</b> 5MB\n"
-            "ðŸ“ <b>Example:</b>\n"
+            "📎 Please upload your tweets.txt file.\n\n"
+            "💡 <b>Format:</b> Plain text, separate tweets with double newline\n"
+            "📏 <b>Max size:</b> 5MB\n"
+            "📝 <b>Example:</b>\n"
             "<code>First tweet here\n\n"
             "Second tweet here\n\n"
             "Third tweet here</code>"
@@ -681,17 +681,17 @@ class TwitterAutomationBot:
     async def handle_tweets_file(self, message: Message, state: FSMContext):
         """Handle tweets.txt file upload"""
         if not self._check_auth(message.from_user.id):
-            await message.answer("ðŸ”’ Unauthorized. Use /start to login.")
+            await message.answer("🔒 Unauthorized. Use /start to login.")
             await state.clear()
             return
 
         try:
             if not message.document.file_name.endswith('.txt'):
-                await message.answer("âŒ Please upload a TXT file (.txt extension required)")
+                await message.answer("❌ Please upload a TXT file (.txt extension required)")
                 return
 
             if message.document.file_size > MAX_FILE_SIZE // 2:  # 5MB for tweets
-                await message.answer("âŒ File too large. Maximum size is 5MB")
+                await message.answer("❌ File too large. Maximum size is 5MB")
                 return
 
             user_dir = DATA_DIR / str(message.from_user.id)
@@ -707,7 +707,7 @@ class TwitterAutomationBot:
                 tweets = [t.strip() for t in content.split("\n\n") if t.strip()]
 
             if not tweets:
-                await message.answer("âŒ No tweets found in file. Make sure tweets are separated by double newlines.")
+                await message.answer("❌ No tweets found in file. Make sure tweets are separated by double newlines.")
                 return
 
             # Check tweet lengths
@@ -716,47 +716,48 @@ class TwitterAutomationBot:
             
             warning_msg = ""
             if long_tweets:
-                warning_msg = f"\nâš ï¸ <b>Warning:</b> {len(long_tweets)} tweets exceed {MAX_TWEET_LENGTH} characters"
+                warning_msg = f"\n⚠️ <b>Warning:</b> {len(long_tweets)} tweets exceed {MAX_TWEET_LENGTH} characters"
 
             await message.answer(
-                f"âœ… <b>Tweets uploaded successfully!</b>\n"
-                f"ðŸ“Š Found {len(tweets)} tweet(s)\n"
-                f"ðŸ’¾ Saved to: tweets.txt{warning_msg}\n"
-                f"ðŸ”— Tweet links will be sent after each post"
+                f"✅ <b>Tweets uploaded successfully!</b>\n"
+                f"📊 Found {len(tweets)} tweet(s)\n"
+                f"💾 Saved to: tweets.txt{warning_msg}\n"
+                f"🔗 Tweet links will be sent after each post"
             )
             logger.info(f"Tweets file uploaded by user {message.from_user.id} ({len(tweets)} tweets)")
 
         except Exception as e:
             logger.error(f"Error uploading tweets: {e}")
-            await message.answer("âŒ Error uploading file. Please try again.")
+            await message.answer("❌ Error uploading file. Please try again.")
         finally:
             await state.clear()
 
     async def add_single_account(self, message: Message):
-        """Add single account - Enhanced with block check"""
+        """Add single account - FIXED VERSION with proper emoji usage"""
         if not self._check_auth(message.from_user.id):
-            await message.answer("ðŸ”’ Unauthorized. Use /start to login.")
+            await message.answer("🔒 Unauthorized. Use /start to login.")
             return
 
         if not message.document:
             await message.answer(
-                "ðŸ“Ž <b>Upload Single Account JSON File</b>\n\n"
-                "ðŸ’¡ <b>Format:</b> Single account object\n"
+                "📎 <b>Upload Single Account JSON File</b>\n\n"
+                "💡 <b>Format:</b> Single account object\n"
                 "<code>{\n"
                 '  "cookies": [\n'
-                '    {"name": "auth_token", "value": "your_token", "domain": ".x.com"},\n'
-                '    {"name": "ct0", "value": "your_ct0", "domain": ".x.com"},\n'
-                '    {"name": "twid", "value": "u%3Dyour_userid", "domain": ".x.com"}\n'
+                '    {"name": "auth_token", "value": "your_token", "domain": ".x.com", "path": "/"},\n'
+                '    {"name": "ct0", "value": "your_ct0", "domain": ".x.com", "path": "/"},\n'
+                '    {"name": "twid", "value": "u=your_userid", "domain": ".x.com", "path": "/"}\n'
                 '  ],\n'
-                '  "origins": [{"origin": "https://x.com", "localStorage": []}]\n'
+                '  "origins": [{"origin": "https://x.com", "localStorage": []}],\n'
+                '  "localStorage": []\n'
                 "}</code>\n\n"
-                "ðŸ“ <b>Max size:</b> 1MB per account"
+                "📏 <b>Max size:</b> 1MB per account"
             )
             return
 
         try:
             if message.document.file_size > 1024 * 1024:  # 1MB limit per account
-                await message.answer("âŒ File too large. Maximum size is 1MB per account.")
+                await message.answer("❌ File too large. Maximum size is 1MB per account.")
                 return
 
             user_dir = DATA_DIR / str(message.from_user.id)
@@ -764,94 +765,108 @@ class TwitterAutomationBot:
             
             # Load existing accounts
             accounts_file = user_dir / "accounts.json"
+            accounts = []
             if accounts_file.exists():
-                async with aiofiles.open(accounts_file, 'r') as f:
-                    accounts = json.loads(await f.read())
-            else:
-                accounts = []
+                async with aiofiles.open(accounts_file, 'r', encoding='utf-8') as f:
+                    content = await f.read()
+                    if content.strip():
+                        try:
+                            accounts = json.loads(content)
+                        except Exception:
+                            accounts = []
 
             # Download new account file
             temp_file = user_dir / "temp_account.json"
             await self.bot.download(message.document, destination=temp_file)
             
             # Load and validate new account
-            async with aiofiles.open(temp_file, 'r') as f:
-                new_account = json.loads(await f.read())
+            async with aiofiles.open(temp_file, 'r', encoding='utf-8') as f:
+                try:
+                    new_account = json.loads(await f.read())
+                except Exception:
+                    await message.answer("❌ Invalid JSON format. Please check your file.")
+                    temp_file.unlink(missing_ok=True)
+                    return
             
             # Validate single account structure
             if not isinstance(new_account, dict) or 'cookies' not in new_account:
-                await message.answer("âŒ Invalid account format. Must contain 'cookies' field.")
-                temp_file.unlink()
+                await message.answer("❌ Invalid account format. Must contain 'cookies' field.")
+                temp_file.unlink(missing_ok=True)
                 return
 
             # Check for required cookies
-            cookie_names = [cookie.get('name') for cookie in new_account.get('cookies', [])]
-            required_cookies = ['auth_token', 'ct0', 'twid']
-            missing_cookies = [cookie for cookie in required_cookies if cookie not in cookie_names]
+            required_cookies = {'auth_token', 'ct0', 'twid'}
+            cookie_names = {cookie.get('name') for cookie in new_account.get('cookies', [])}
+            missing_cookies = required_cookies - cookie_names
             
             if missing_cookies:
-                await message.answer(f"âš ï¸ Missing cookies: {', '.join(missing_cookies)}\nAccount added but may not work properly.")
+                await message.answer(f"⚠️ Missing cookies: {', '.join(missing_cookies)}. Account added but may not work properly.")
 
             # Check if account already exists (by twid or auth_token)
-            existing_ids = []
+            existing_ids = set()
             for account in accounts:
                 for cookie in account.get('cookies', []):
-                    if cookie.get('name') in ['twid', 'auth_token']:
-                        existing_ids.append(cookie.get('value', ''))
+                    if cookie.get('name') in required_cookies:
+                        existing_ids.add(cookie.get('value'))
 
             # Check new account for duplicates
-            new_account_id = None
+            duplicate_found = False
             for cookie in new_account.get('cookies', []):
-                if cookie.get('name') in ['twid', 'auth_token']:
-                    if cookie.get('value') in existing_ids:
-                        await message.answer("âš ï¸ This account already exists!")
-                        temp_file.unlink()
-                        return
-                    if cookie.get('name') == 'twid':
-                        new_account_id = cookie.get('value', '')
+                if cookie.get('name') in required_cookies and cookie.get('value') in existing_ids:
+                    duplicate_found = True
+                    break
+
+            if duplicate_found:
+                await message.answer("⚠️ This account already exists!")
+                temp_file.unlink(missing_ok=True)
+                return
 
             # Add to accounts list
             accounts.append(new_account)
             
             # Save updated accounts
-            async with aiofiles.open(accounts_file, 'w') as f:
+            async with aiofiles.open(accounts_file, 'w', encoding='utf-8') as f:
                 await f.write(json.dumps(accounts, indent=2))
             
             # Clean up temp file
-            temp_file.unlink()
+            temp_file.unlink(missing_ok=True)
             
             # Extract user info for display
             display_info = "New Account"
-            if new_account_id and 'u%3D' in new_account_id:
-                userid = new_account_id.split('u%3D')[1][:10]
-                display_info = f"ID: {userid}..."
+            twid_cookie = next((c for c in new_account['cookies'] if c.get('name') == 'twid'), None)
+            if twid_cookie and 'value' in twid_cookie:
+                val = twid_cookie['value']
+                if val.startswith('u='):
+                    display_info = f"ID: {val[2:12]}..."
+                elif val.startswith('u%3D'):
+                    parts = val.split('%3D')
+                    display_info = f"ID: {parts[1][:10]}..." if len(parts) > 1 else "ID: ..."
             
             await message.answer(
-                f"âœ… <b>Account Added Successfully!</b>\n\n"
-                f"ðŸ†” <b>Account:</b> {display_info}\n"
-                f"ðŸ“Š <b>Total Accounts:</b> {len(accounts)}\n"
-                f"ðŸ“ <b>Position:</b> Account #{len(accounts)}\n"
-                f"ðŸ’¾ <b>Status:</b> Saved to accounts.json\n\n"
-                f"ðŸ’¡ Use /listaccounts to see all accounts\n"
-                f"ðŸš€ Use /addaccount to add more accounts"
+                f"✅ <b>Account Added Successfully!</b>\n\n"
+                f"👤 <b>Account:</b> {display_info}\n"
+                f"📊 <b>Total Accounts:</b> {len(accounts)}\n"
+                f"📍 <b>Position:</b> Account #{len(accounts)}\n"
+                f"💾 <b>Status:</b> Saved to accounts.json\n\n"
+                f"💡 Use /listaccounts to see all accounts\n"
+                f"➕ Use /addaccount to add more accounts"
             )
             
             logger.info(f"Single account added by user {message.from_user.id}. Total: {len(accounts)}")
 
-        except json.JSONDecodeError:
-            await message.answer("âŒ Invalid JSON format. Please check your file.")
-            if 'temp_file' in locals() and temp_file.exists():
-                temp_file.unlink()
         except Exception as e:
             logger.error(f"Error adding single account: {e}")
-            await message.answer("âŒ Error adding account. Please try again.")
-            if 'temp_file' in locals() and temp_file.exists():
-                temp_file.unlink()
+            await message.answer("❌ Error adding account. Please try again.")
+            if 'temp_file' in locals():
+                try:
+                    temp_file.unlink(missing_ok=True)
+                except:
+                    pass
 
     async def list_accounts(self, message: Message):
         """List all accounts with details - Enhanced with block check"""
         if not self._check_auth(message.from_user.id):
-            await message.answer("ðŸ”’ Unauthorized. Use /start to login.")
+            await message.answer("🔒 Unauthorized. Use /start to login.")
             return
 
         try:
@@ -860,9 +875,9 @@ class TwitterAutomationBot:
             
             if not accounts_file.exists():
                 await message.answer(
-                    "ðŸ“‹ <b>No Accounts Found</b>\n\n"
-                    "ðŸ’¡ Use /addaccount to add your first account\n"
-                    "ðŸ“ Or use /uploadkeys for bulk upload"
+                    "📋 <b>No Accounts Found</b>\n\n"
+                    "💡 Use /addaccount to add your first account\n"
+                    "📁 Or use /uploadkeys for bulk upload"
                 )
                 return
 
@@ -871,9 +886,9 @@ class TwitterAutomationBot:
 
             if not accounts:
                 await message.answer(
-                    "ðŸ“‹ <b>No Accounts Found</b>\n\n"
-                    "ðŸ’¡ Use /addaccount to add your first account\n"
-                    "ðŸ“ Or use /uploadkeys for bulk upload"
+                    "📋 <b>No Accounts Found</b>\n\n"
+                    "💡 Use /addaccount to add your first account\n"
+                    "📁 Or use /uploadkeys for bulk upload"
                 )
                 return
 
@@ -882,7 +897,7 @@ class TwitterAutomationBot:
             for i, account in enumerate(accounts, 1):
                 # Extract account info
                 username = "Unknown"
-                auth_status = "â“"
+                auth_status = "❓"
                 cookie_count = len(account.get('cookies', []))
                 
                 cookies = account.get('cookies', [])
@@ -897,20 +912,21 @@ class TwitterAutomationBot:
                         if 'u%3D' in twid_value:
                             userid = twid_value.split('u%3D')[1]
                             username = f"ID: {userid[:12]}..."
+                        elif 'u=' in twid_value:
+                            userid = twid_value.split('u=')[1]
+                            username = f"ID: {userid[:12]}..."
                     elif cookie.get('name') == 'auth_token':
                         has_auth = True
-                        if cookie.get('value') and len(cookie.get('value', '')) > 10:
-                            pass
                     elif cookie.get('name') == 'ct0':
                         has_ct0 = True
 
                 # Determine status
                 if has_auth and has_ct0 and has_twid:
-                    auth_status = "âœ…"
+                    auth_status = "✅"
                 elif has_auth and has_ct0:
-                    auth_status = "âš ï¸"
+                    auth_status = "⚠️"
                 else:
-                    auth_status = "âŒ"
+                    auth_status = "❌"
 
                 account_list.append(f"{i}. {username} {auth_status} ({cookie_count} cookies)")
 
@@ -919,31 +935,31 @@ class TwitterAutomationBot:
             current_time = ist_now().strftime('%d %B %Y, %I:%M %p IST')
             
             # Create summary
-            ready_count = sum(1 for line in account_list if "âœ…" in line)
-            partial_count = sum(1 for line in account_list if "âš ï¸" in line)
+            ready_count = sum(1 for line in account_list if "✅" in line)
+            partial_count = sum(1 for line in account_list if "⚠️" in line)
             
             response = (
-                f"ðŸ“‹ <b>Your Twitter Accounts:</b>\n\n"
+                f"📋 <b>Your Twitter Accounts:</b>\n\n"
                 f"{accounts_text}\n\n"
-                f"ðŸ“Š <b>Summary:</b>\n"
-                f"â€¢ Total Accounts: {len(accounts)}\n"
-                f"â€¢ Ready to Use: {ready_count}\n"
-                f"â€¢ Partial Setup: {partial_count}\n"
-                f"â€¢ Need Attention: {len(accounts) - ready_count - partial_count}\n\n"
-                f"ðŸ• <b>Listed at:</b> {current_time}\n\n"
-                f"ðŸ’¡ <b>Legend:</b>\n"
-                f"âœ… = Ready (auth_token + ct0 + twid)\n"
-                f"âš ï¸ = Partial (missing twid)\n"
-                f"âŒ = Incomplete (missing required cookies)\n\n"
-                f"ðŸš€ Use /addaccount to add more accounts"
+                f"📊 <b>Summary:</b>\n"
+                f"• Total Accounts: {len(accounts)}\n"
+                f"• Ready to Use: {ready_count}\n"
+                f"• Partial Setup: {partial_count}\n"
+                f"• Need Attention: {len(accounts) - ready_count - partial_count}\n\n"
+                f"🕒 <b>Listed at:</b> {current_time}\n\n"
+                f"💡 <b>Legend:</b>\n"
+                f"✅ = Ready (auth_token + ct0 + twid)\n"
+                f"⚠️ = Partial (missing twid)\n"
+                f"❌ = Incomplete (missing required cookies)\n\n"
+                f"➕ Use /addaccount to add more accounts"
             )
 
             # Split long messages
             if len(response) > 4000:
                 # Send in parts
                 parts = [
-                    f"ðŸ“‹ <b>Your Twitter Accounts:</b>\n\n{accounts_text}",
-                    f"ðŸ“Š <b>Summary:</b>\nâ€¢ Total: {len(accounts)}\nâ€¢ Ready: {ready_count}\nâ€¢ Partial: {partial_count}\n\nðŸ’¡ Legend: âœ…=Ready âš ï¸=Partial âŒ=Incomplete"
+                    f"📋 <b>Your Twitter Accounts:</b>\n\n{accounts_text}",
+                    f"📊 <b>Summary:</b>\n• Total: {len(accounts)}\n• Ready: {ready_count}\n• Partial: {partial_count}\n\n💡 Legend: ✅=Ready ⚠️=Partial ❌=Incomplete"
                 ]
                 for part in parts:
                     await message.answer(part)
@@ -951,110 +967,111 @@ class TwitterAutomationBot:
                 await message.answer(response)
 
         except json.JSONDecodeError:
-            await message.answer("âŒ Corrupted accounts file. Please re-add accounts using /addaccount.")
+            await message.answer("❌ Corrupted accounts file. Please re-add accounts using /addaccount.")
         except Exception as e:
             logger.error(f"Error listing accounts: {e}")
-            await message.answer("âŒ Error retrieving accounts list.")
+            await message.answer("❌ Error retrieving accounts list.")
 
     async def help_command(self, message: Message):
         """Enhanced help command with admin features"""
         if not self._check_auth(message.from_user.id):
-            await message.answer("ðŸ”’ Unauthorized. Use /start to login.")
+            await message.answer("🔒 Unauthorized. Use /start to login.")
             return
 
         admin_help = ""
         if self._is_admin(message.from_user.id):
             admin_help = """
-<b>ðŸ”§ Admin Commands:</b>
-â€¢ /setcode - Change admin approval code
-â€¢ /allusers - View all users and their status
-â€¢ /block - Block a user
-â€¢ /unblock - Unblock a user
-â€¢ /getuser - Get user data and files
+<b>🔧 Admin Commands:</b>
+• /setcode - Change admin approval code
+• /allusers - View all users and their status
+• /block - Block a user
+• /unblock - Unblock a user
+• /getuser - Get user data and files
 
 """
 
         help_text = f"""
-ðŸ¤– <b>Twitter/X Automation Bot - Enhanced Help</b>
+🤖 <b>Twitter/X Automation Bot - Enhanced Help</b>
 
-<b>ðŸ†• Account Management:</b>
-â€¢ /addaccount - Add single account (one by one)
-â€¢ /listaccounts - Show all accounts with status
+<b>🆕 Account Management:</b>
+• /addaccount - Add single account (one by one)
+• /listaccounts - Show all accounts with status
 
-<b>ðŸ“‹ Main Commands:</b>
-â€¢ /uploadkeys - Upload accounts.json (traditional bulk)
-â€¢ /uploadtweets - Upload tweets.txt
-â€¢ /schedule - Schedule posting time (IST)
-â€¢ /time - Show current IST time
-â€¢ /status - Check current tasks
-â€¢ /cancel - Cancel active operations
-â€¢ /help - Show this help
+<b>📋 Main Commands:</b>
+• /uploadkeys - Upload accounts.json (traditional bulk)
+• /uploadtweets - Upload tweets.txt
+• /schedule - Schedule posting time (IST)
+• /time - Show current IST time
+• /status - Check current tasks
+• /cancel - Cancel active operations
+• /help - Show this help
 
-{admin_help}<b>ðŸ”„ Recommended Workflow:</b>
+{admin_help}<b>📄 Recommended Workflow:</b>
 1. Use /addaccount to add accounts one by one
 2. Use /listaccounts to verify all accounts
 3. Use /uploadtweets to upload your tweets
 4. Use /schedule to start automated posting
 
-<b>ðŸ“„ Single Account Format:</b>
+<b>📄 Single Account Format:</b>
 <code>{{
   "cookies": [
-    {{"name": "auth_token", "value": "your_token", "domain": ".x.com"}},
-    {{"name": "ct0", "value": "your_ct0", "domain": ".x.com"}},
-    {{"name": "twid", "value": "u%3Dyour_userid", "domain": ".x.com"}}
+    {{"name": "auth_token", "value": "your_token", "domain": ".x.com", "path": "/"}},
+    {{"name": "ct0", "value": "your_ct0", "domain": ".x.com", "path": "/"}},
+    {{"name": "twid", "value": "u=your_userid", "domain": ".x.com", "path": "/"}}
   ],
-  "origins": [{{"origin": "https://x.com", "localStorage": []}}]
+  "origins": [{{"origin": "https://x.com", "localStorage": []}}],
+  "localStorage": []
 }}</code>
 
-<b>ðŸ“… IST Time Formats:</b>
-â€¢ 3 August 2025 @12:31PM
-â€¢ 03/08/2025 12:31
-â€¢ 2025-08-03 12:31
-â€¢ 3 August 2025 12:31
+<b>📅 IST Time Formats:</b>
+• 3 August 2025 @12:31PM
+• 03/08/2025 12:31
+• 2025-08-03 12:31
+• 3 August 2025 12:31
 
-<b>âœ¨ Enhanced Features:</b>
-â€¢ Individual account management
-â€¢ Duplicate account detection
-â€¢ Account status monitoring
-â€¢ Automatic tweet link extraction
-â€¢ Real-time posting progress
-â€¢ Admin user management system
+<b>✨ Enhanced Features:</b>
+• Individual account management
+• Duplicate account detection
+• Account status monitoring
+• Automatic tweet link extraction
+• Real-time posting progress
+• Admin user management system
 
-<b>ðŸ‡®ðŸ‡³ Timezone:</b>
+<b>🌍 Timezone:</b>
 All times are in IST (Indian Standard Time, UTC+5:30)
 
-<b>âš ï¸ Important:</b>
-â€¢ Respect Twitter/X terms of service
-â€¢ Use reasonable posting intervals (5-15 seconds)
-â€¢ Monitor for rate limits
-â€¢ Keep credentials secure
+<b>⚠️ Important:</b>
+• Respect Twitter/X terms of service
+• Use reasonable posting intervals (5-15 seconds)
+• Monitor for rate limits
+• Keep credentials secure
         """
         await message.answer(help_text)
 
     async def schedule_prompt(self, message: Message, state: FSMContext):
         """Enhanced scheduling prompt with IST timezone and block check"""
         if not self._check_auth(message.from_user.id):
-            await message.answer("ðŸ”’ Unauthorized. Use /start to login.")
+            await message.answer("🔒 Unauthorized. Use /start to login.")
             return
 
         current_time = ist_now().strftime('%d %B %Y, %I:%M %p IST')
         await message.answer(
-            "ðŸ“… <b>Schedule Posting Time (IST)</b>\n\n"
-            f"ðŸ‡®ðŸ‡³ Current IST Time: {current_time}\n\n"
+            "📅 <b>Schedule Posting Time (IST)</b>\n\n"
+            f"🕒 Current IST Time: {current_time}\n\n"
             "Enter the time in one of these formats:\n\n"
-            "ðŸ”¸ <code>3 August 2025 @12:31PM</code>\n"
-            "ðŸ”¸ <code>03/08/2025 12:31</code>\n"
-            "ðŸ”¸ <code>2025-08-03 12:31</code>\n"
-            "ðŸ”¸ <code>3 August 2025 12:31</code>\n\n"
-            "â° <b>Note:</b> All times are in IST (Indian Standard Time)\n"
-            "ðŸ”— <b>Feature:</b> Tweet links will be sent after each post"
+            "📸 <code>3 August 2025 @12:31PM</code>\n"
+            "📸 <code>03/08/2025 12:31</code>\n"
+            "📸 <code>2025-08-03 12:31</code>\n"
+            "📸 <code>3 August 2025 12:31</code>\n\n"
+            "⏰ <b>Note:</b> All times are in IST (Indian Standard Time)\n"
+            "🔗 <b>Feature:</b> Tweet links will be sent after each post"
         )
         await state.set_state(ScheduleState.waiting_for_time)
 
     async def handle_schedule(self, message: Message, state: FSMContext):
         """Enhanced scheduling with IST timezone support and block check"""
         if not self._check_auth(message.from_user.id):
-            await message.answer("ðŸ”’ Unauthorized. Use /start to login.")
+            await message.answer("🔒 Unauthorized. Use /start to login.")
             await state.clear()
             return
 
@@ -1066,18 +1083,18 @@ All times are in IST (Indian Standard Time, UTC+5:30)
             
             if not dt:
                 await message.answer(
-                    "âŒ Invalid time format. Please use one of these formats:\n"
-                    "â€¢ 3 August 2025 @12:31PM\n"
-                    "â€¢ 03/08/2025 12:31\n"
-                    "â€¢ 2025-08-03 12:31\n"
-                    "â€¢ 3 August 2025 12:31"
+                    "❌ Invalid time format. Please use one of these formats:\n"
+                    "• 3 August 2025 @12:31PM\n"
+                    "• 03/08/2025 12:31\n"
+                    "• 2025-08-03 12:31\n"
+                    "• 3 August 2025 12:31"
                 )
                 return
 
             # Validate future time
             now = ist_now()
             if dt <= now:
-                await message.answer(f"âŒ Scheduled time must be in the future.\nCurrent IST time: {now.strftime('%d %B %Y, %I:%M %p')}")
+                await message.answer(f"❌ Scheduled time must be in the future.\nCurrent IST time: {now.strftime('%d %B %Y, %I:%M %p')}")
                 return
 
             # Check files exist
@@ -1086,11 +1103,11 @@ All times are in IST (Indian Standard Time, UTC+5:30)
             accounts_file = user_dir / "accounts.json"
             
             if not tweets_file.exists():
-                await message.answer("âŒ Please upload tweets.txt file first using /uploadtweets")
+                await message.answer("❌ Please upload tweets.txt file first using /uploadtweets")
                 return
                 
             if not accounts_file.exists():
-                await message.answer("âŒ Please upload accounts first using /uploadkeys or /addaccount")
+                await message.answer("❌ Please upload accounts first using /uploadkeys or /addaccount")
                 return
 
             # Load files
@@ -1102,17 +1119,17 @@ All times are in IST (Indian Standard Time, UTC+5:30)
                 accounts = json.loads(await f.read())
 
             if not tweets:
-                await message.answer("âŒ No tweets found in uploaded file.")
+                await message.answer("❌ No tweets found in uploaded file.")
                 return
 
             if not accounts:
-                await message.answer("âŒ No accounts found in uploaded file.")
+                await message.answer("❌ No accounts found in uploaded file.")
                 return
 
             # Validate tweet/account ratio
             if len(tweets) > len(accounts):
                 await message.answer(
-                    f"âš ï¸ <b>Notice:</b> {len(tweets)} tweets but only {len(accounts)} accounts.\n"
+                    f"⚠️ <b>Notice:</b> {len(tweets)} tweets but only {len(accounts)} accounts.\n"
                     f"Tweets will cycle through accounts. Each account may post multiple tweets."
                 )
 
@@ -1120,7 +1137,7 @@ All times are in IST (Indian Standard Time, UTC+5:30)
             user_id = message.from_user.id
             if user_id in self.active_tasks:
                 self.active_tasks[user_id].cancel()
-                await message.answer("ðŸ”„ Cancelled previous task.")
+                await message.answer("🔄 Cancelled previous task.")
 
             # Create scheduling task
             task = asyncio.create_task(
@@ -1132,26 +1149,26 @@ All times are in IST (Indian Standard Time, UTC+5:30)
             delay = (dt - now).total_seconds()
             
             await message.answer(
-                f"â° <b>Scheduling Confirmed!</b>\n\n"
-                f"ðŸ“… <b>IST Time:</b> {time_str}\n"
-                f"ðŸ“Š <b>Tweets:</b> {len(tweets)}\n"
-                f"ðŸ‘¥ <b>Accounts:</b> {len(accounts)}\n"
-                f"â±ï¸ <b>Starts in:</b> {int(delay//60)} minutes\n"
-                f"ðŸ†” <b>Task ID:</b> {id(task)}\n"
-                f"ðŸ‡®ðŸ‡³ <b>Timezone:</b> Indian Standard Time\n"
-                f"ðŸ”— <b>Feature:</b> Tweet links will be sent automatically"
+                f"⏰ <b>Scheduling Confirmed!</b>\n\n"
+                f"📅 <b>IST Time:</b> {time_str}\n"
+                f"📊 <b>Tweets:</b> {len(tweets)}\n"
+                f"👥 <b>Accounts:</b> {len(accounts)}\n"
+                f"⏱️ <b>Starts in:</b> {int(delay//60)} minutes\n"
+                f"🆔 <b>Task ID:</b> {id(task)}\n"
+                f"🌍 <b>Timezone:</b> Indian Standard Time\n"
+                f"🔗 <b>Feature:</b> Tweet links will be sent automatically"
             )
             await state.clear()
             logger.info(f"Scheduling created by user {user_id} for {dt} IST")
 
         except Exception as e:
             logger.error(f"Error in handle_schedule: {e}")
-            await message.answer("âŒ Error creating schedule. Please try again.")
+            await message.answer("❌ Error creating schedule. Please try again.")
 
     async def status_command(self, message: Message):
         """Check status of active tasks with block check"""
         if not self._check_auth(message.from_user.id):
-            await message.answer("ðŸ”’ Unauthorized. Use /start to login.")
+            await message.answer("🔒 Unauthorized. Use /start to login.")
             return
 
         user_id = message.from_user.id
@@ -1160,24 +1177,24 @@ All times are in IST (Indian Standard Time, UTC+5:30)
         if user_id in self.active_tasks and not self.active_tasks[user_id].done():
             task = self.active_tasks[user_id]
             await message.answer(
-                f"ðŸ“Š <b>Task Status: ACTIVE</b>\n"
-                f"ðŸ†” Task ID: {id(task)}\n"
-                f"â³ Status: Running\n"
-                f"ðŸ‡®ðŸ‡³ Current IST: {current_time}\n"
-                f"ðŸ”— Tweet links: Auto-extract enabled\n"
-                f"ðŸ“± Use /cancel to stop"
+                f"📊 <b>Task Status: ACTIVE</b>\n"
+                f"🆔 Task ID: {id(task)}\n"
+                f"⏳ Status: Running\n"
+                f"🕒 Current IST: {current_time}\n"
+                f"🔗 Tweet links: Auto-extract enabled\n"
+                f"📱 Use /cancel to stop"
             )
         else:
             await message.answer(
-                f"ðŸ“Š <b>Task Status: IDLE</b>\n"
-                f"ðŸ‡®ðŸ‡³ Current IST: {current_time}\n"
+                f"📊 <b>Task Status: IDLE</b>\n"
+                f"🕒 Current IST: {current_time}\n"
                 f"No active tasks running."
             )
 
     async def cancel_command(self, message: Message):
         """Cancel active scheduling task with block check"""
         if not self._check_auth(message.from_user.id):
-            await message.answer("ðŸ”’ Unauthorized. Use /start to login.")
+            await message.answer("🔒 Unauthorized. Use /start to login.")
             return
 
         user_id = message.from_user.id
@@ -1186,13 +1203,13 @@ All times are in IST (Indian Standard Time, UTC+5:30)
             del self.active_tasks[user_id]
             current_time = ist_now().strftime('%d %B %Y, %I:%M %p IST')
             await message.answer(
-                f"âŒ <b>Task Cancelled</b>\n"
+                f"❌ <b>Task Cancelled</b>\n"
                 f"Active scheduling task stopped.\n"
-                f"ðŸ‡®ðŸ‡³ Cancelled at: {current_time}"
+                f"🕒 Cancelled at: {current_time}"
             )
             logger.info(f"Task cancelled by user {user_id}")
         else:
-            await message.answer("ðŸ“Š No active tasks to cancel.")
+            await message.answer("📊 No active tasks to cancel.")
 
     @asynccontextmanager
     async def get_browser(self):
@@ -1337,15 +1354,15 @@ All times are in IST (Indian Standard Time, UTC+5:30)
                         tweet_url = None
                     
                     await context.close()
-                    return ("âœ… Posted successfully", tweet_url)
+                    return ("✅ Posted successfully", tweet_url)
                     
             except Exception as e:
                 logger.error(f"Tweet posting attempt {attempt + 1} failed: {e}")
                 if attempt == retry_count - 1:
-                    return (f"âŒ Failed after {retry_count} attempts: {str(e)[:100]}", None)
+                    return (f"❌ Failed after {retry_count} attempts: {str(e)[:100]}", None)
                 await asyncio.sleep(random.uniform(5, 10))
         
-        return ("âŒ All attempts failed", None)
+        return ("❌ All attempts failed", None)
 
     async def run_scheduler(self, dt: datetime, tweets: List[str], accounts: List[Dict], message: Message):
         """Enhanced scheduler with IST timezone, progress tracking, and tweet link extraction"""
@@ -1356,11 +1373,11 @@ All times are in IST (Indian Standard Time, UTC+5:30)
             delay = (dt - now).total_seconds()
             
             if delay > 0:
-                await message.answer(f"â³ Waiting {int(delay//60)} minutes until scheduled time (IST)...")
+                await message.answer(f"⏳ Waiting {int(delay//60)} minutes until scheduled time (IST)...")
                 await asyncio.sleep(delay)
             
             start_time = ist_now().strftime('%I:%M %p IST')
-            await message.answer(f"ðŸš€ <b>Starting automated posting...</b>\nðŸ‡®ðŸ‡³ Started at: {start_time}\nðŸ”— Tweet links will be sent after each post")
+            await message.answer(f"🚀 <b>Starting automated posting...</b>\n🕒 Started at: {start_time}\n🔗 Tweet links will be sent after each post")
             
             results = []
             tweet_links = []
@@ -1370,7 +1387,7 @@ All times are in IST (Indian Standard Time, UTC+5:30)
                 try:
                     # Check if user is still authorized during posting
                     if not self._check_auth(user_id):
-                        await message.answer("âŒ <b>Posting Stopped:</b> User authorization revoked during posting.")
+                        await message.answer("❌ <b>Posting Stopped:</b> User authorization revoked during posting.")
                         break
                     
                     # Add random delay between posts
@@ -1390,42 +1407,42 @@ All times are in IST (Indian Standard Time, UTC+5:30)
                     if tweet_url:
                         tweet_links.append(f"Tweet {i}: {tweet_url}")
                         await message.answer(
-                            f"âœ… <b>Tweet {i} Posted!</b>\n"
-                            f"ðŸ”— Link: {tweet_url}\n"
-                            f"ðŸ‘¤ Account: #{account_index + 1}\n"
-                            f"ðŸ“ Text: {tweet[:50]}{'...' if len(tweet) > 50 else ''}"
+                            f"✅ <b>Tweet {i} Posted!</b>\n"
+                            f"🔗 Link: {tweet_url}\n"
+                            f"👤 Account: #{account_index + 1}\n"
+                            f"📝 Text: {tweet[:50]}{'...' if len(tweet) > 50 else ''}"
                         )
                     else:
                         await message.answer(
-                            f"âœ… <b>Tweet {i} Posted!</b>\n"
-                            f"âš ï¸ Could not extract tweet link\n"
-                            f"ðŸ‘¤ Account: #{account_index + 1}\n"
-                            f"ðŸ“ Text: {tweet[:50]}{'...' if len(tweet) > 50 else ''}"
+                            f"✅ <b>Tweet {i} Posted!</b>\n"
+                            f"⚠️ Could not extract tweet link\n"
+                            f"👤 Account: #{account_index + 1}\n"
+                            f"📝 Text: {tweet[:50]}{'...' if len(tweet) > 50 else ''}"
                         )
                     
                     # Progress updates
                     if i % 5 == 0 or i == total_tweets:
                         progress = int((i / total_tweets) * 100)
                         current_time = ist_now().strftime('%I:%M %p IST')
-                        await message.answer(f"ðŸ“Š Progress: {i}/{total_tweets} ({progress}%)\nðŸ‡®ðŸ‡³ Time: {current_time}")
+                        await message.answer(f"📊 Progress: {i}/{total_tweets} ({progress}%)\n🕒 Time: {current_time}")
                         
                 except asyncio.CancelledError:
                     raise
                 except Exception as e:
                     logger.error(f"Error posting tweet {i}: {e}")
-                    results.append(f"Tweet {i}: âŒ Error - {str(e)[:50]}")
-                    await message.answer(f"âŒ <b>Tweet {i} Failed!</b>\nError: {str(e)[:100]}")
+                    results.append(f"Tweet {i}: ❌ Error - {str(e)[:50]}")
+                    await message.answer(f"❌ <b>Tweet {i} Failed!</b>\nError: {str(e)[:100]}")
 
             # Send final summary
-            success_count = sum(1 for r in results if "âœ…" in r)
+            success_count = sum(1 for r in results if "✅" in r)
             failure_count = len(results) - success_count
             end_time = ist_now().strftime('%I:%M %p IST')
             
-            summary = (f"ðŸ“¤ <b>Posting Complete!</b>\n"
-                      f"âœ… Success: {success_count}\n"
-                      f"âŒ Failed: {failure_count}\n"
-                      f"ðŸ”— Links extracted: {len(tweet_links)}\n"
-                      f"ðŸ‡®ðŸ‡³ Completed at: {end_time}\n\n")
+            summary = (f"📤 <b>Posting Complete!</b>\n"
+                      f"✅ Success: {success_count}\n"
+                      f"❌ Failed: {failure_count}\n"
+                      f"🔗 Links extracted: {len(tweet_links)}\n"
+                      f"🕒 Completed at: {end_time}\n\n")
             
             # Send summary of all tweet links
             if tweet_links:
@@ -1437,22 +1454,22 @@ All times are in IST (Indian Standard Time, UTC+5:30)
                     for i in range(0, len(tweet_links), batch_size):
                         batch = tweet_links[i:i+batch_size]
                         batch_text = "\n".join(batch)
-                        await message.answer(f"ðŸ”— <b>Tweet Links (Batch {i//batch_size + 1}):</b>\n{batch_text}")
+                        await message.answer(f"🔗 <b>Tweet Links (Batch {i//batch_size + 1}):</b>\n{batch_text}")
                 else:
-                    await message.answer(f"{summary}ðŸ”— <b>All Tweet Links:</b>\n{links_text}")
+                    await message.answer(f"{summary}🔗 <b>All Tweet Links:</b>\n{links_text}")
             else:
-                await message.answer(summary + "âš ï¸ No tweet links could be extracted.")
+                await message.answer(summary + "⚠️ No tweet links could be extracted.")
                 
             logger.info(f"Scheduling completed for user {user_id}: {success_count}/{len(results)} successful, {len(tweet_links)} links extracted")
             
         except asyncio.CancelledError:
             cancel_time = ist_now().strftime('%I:%M %p IST')
-            await message.answer(f"âŒ <b>Task Cancelled</b>\nðŸ‡®ðŸ‡³ Cancelled at: {cancel_time}")
+            await message.answer(f"❌ <b>Task Cancelled</b>\n🕒 Cancelled at: {cancel_time}")
             logger.info(f"Scheduling cancelled for user {user_id}")
         except Exception as e:
             logger.error(f"Error in run_scheduler: {e}")
             error_time = ist_now().strftime('%I:%M %p IST')
-            await message.answer(f"âŒ <b>Scheduling Error:</b>\n{str(e)[:200]}\nðŸ‡®ðŸ‡³ Error at: {error_time}")
+            await message.answer(f"❌ <b>Scheduling Error:</b>\n{str(e)[:200]}\n🕒 Error at: {error_time}")
         finally:
             # Clean up task reference
             if user_id in self.active_tasks:
@@ -1480,31 +1497,31 @@ def main():
     try:
         # Validate configuration
         if BOT_TOKEN == "YOUR_BOT_TOKEN_HERE":
-            print("âŒ Error: Please set your BOT_TOKEN in the configuration section!")
+            print("❌ Error: Please set your BOT_TOKEN in the configuration section!")
             print("Edit main.py and replace 'YOUR_BOT_TOKEN_HERE' with your actual bot token")
             print("Get your token from @BotFather on Telegram")
             return
 
         if YOUR_TELEGRAM_USER_ID == 123456789:
-            print("âš ï¸  Warning: Please set YOUR_TELEGRAM_USER_ID to your actual Telegram user ID for admin features")
+            print("⚠️  Warning: Please set YOUR_TELEGRAM_USER_ID to your actual Telegram user ID for admin features")
         
-        print(f"ðŸ‡®ðŸ‡³ Starting bot with IST timezone...")
-        print(f"ðŸ”— Tweet link extraction: ENABLED")
-        print(f"ðŸ†• Individual account management: ENABLED")
-        print(f"ðŸ”§ Admin features: ENABLED")
-        print(f"ðŸ‘¨â€ðŸ’¼ Admin user ID: {YOUR_TELEGRAM_USER_ID}")
-        print(f"ðŸ• Current IST time: {ist_now().strftime('%d %B %Y, %I:%M %p IST')}")
+        print(f"🕒 Starting bot with IST timezone...")
+        print(f"🔗 Tweet link extraction: ENABLED")
+        print(f"🆕 Individual account management: ENABLED")
+        print(f"🔧 Admin features: ENABLED")
+        print(f"👨‍💼 Admin user ID: {YOUR_TELEGRAM_USER_ID}")
+        print(f"🕒 Current IST time: {ist_now().strftime('%d %B %Y, %I:%M %p IST')}")
         
         # Create and start bot
         bot = TwitterAutomationBot()
         asyncio.run(bot.start_bot())
         
     except KeyboardInterrupt:
-        print(f"\nðŸ›‘ Bot stopped by user at {ist_now().strftime('%I:%M %p IST')}")
+        print(f"\n🛑 Bot stopped by user at {ist_now().strftime('%I:%M %p IST')}")
         logger.info("Bot stopped by user (Ctrl+C)")
     except Exception as e:
         logger.error(f"Fatal error: {e}")
-        print(f"âŒ Fatal error: {e}")
+        print(f"❌ Fatal error: {e}")
 
 if __name__ == "__main__":
     main()
