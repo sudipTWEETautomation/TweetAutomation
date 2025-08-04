@@ -1,13 +1,3 @@
-#!/usr/bin/env python3
-"""
-Telegram Bot for Twitter/X Automation
-– IST timezone
-– Individual account management
-– Automatic tweet-link extraction
-– Admin user-management suite
-– Robust file-upload workflow (aiogram 3.x)
-"""
-
 # -----------------------------  STANDARD LIBS  ------------------------------
 import asyncio
 import hashlib
@@ -42,9 +32,9 @@ except ImportError as e:
     raise SystemExit(1)
 
 # -----------------------------  CONFIGURATION  ------------------------------
-BOT_TOKEN             = "YOUR_REAL_BOT_TOKEN"
-DEFAULT_ADMIN_CODE    = "CHANGE_ME"
-YOUR_TELEGRAM_USER_ID = 123456789            # ← replace with your own ID
+BOT_TOKEN             = "8428126884:AAFeYk650yE4oUXNIDSi_Mjv9Rl9WIPZ8SQ"
+DEFAULT_ADMIN_CODE    = "STAB424596"
+YOUR_TELEGRAM_USER_ID = 6535216093            # ← replace with your own ID
 
 DATA_DIR              = Path("data")
 LOG_LEVEL             = "INFO"
