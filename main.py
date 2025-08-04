@@ -1,10 +1,3 @@
-#!/usr/bin/env python3
-"""
-Enhanced Telegram Bot for Twitter/X Automation
-Fixed version with IST timezone, tweet link extraction, and individual account management
-File: main.py
-"""
-
 import os
 import json
 import asyncio
@@ -41,7 +34,12 @@ except ImportError as e:
 # CONFIGURATION - EDIT THESE VALUES
 # =====================================================
 BOT_TOKEN = "8428126884:AAFeYk650yE4oUXNIDSi_Mjv9Rl9WIPZ8SQ"  # Get from @BotFather
-ADMIN_CODE = "STA42931"  # Change this to your secure code
+
+# Initial admin approve code (can be changed dynamically by admin)
+DEFAULT_ADMIN_CODE = "STA42931"
+
+# Set your Telegram ID here as admin for admin-only commands
+YOUR_TELEGRAM_USER_ID = 6535216093  # Replace with your actual Telegram user ID
 
 # Other settings
 DATA_DIR = Path("data")
@@ -82,11 +80,28 @@ ACCOUNTS_SCHEMA = {
     }
 }
 
+# File paths for admin code, users and blocked users DB
+ADMIN_CODE_FILE = DATA_DIR / "admin_code.json"
+USERS_DB_FILE = DATA_DIR / "authorized_users.json"
+BLOCKED_USERS_FILE = DATA_DIR / "blocked_users.json"
+
 class AuthState(StatesGroup):
     waiting_for_code = State()
 
 class ScheduleState(StatesGroup):
     waiting_for_time = State()
+
+class UserBlockState(StatesGroup):
+    waiting_for_block_userid = State()
+
+class UserUnblockState(StatesGroup):
+    waiting_for_unblock_userid = State()
+
+class ChangeCodeState(StatesGroup):
+    waiting_for_new_code = State()
+
+class GetUserDataState(StatesGroup):
+    waiting_for_user_id = State()
 
 class BotError(Exception):
     """Custom exception for bot errors"""
@@ -96,7 +111,7 @@ def ist_now():
     """Get current time in IST"""
     return datetime.now(IST)
 
-def ist_from_string(time_str: str) -> datetime:
+def ist_from_string(time_str: str) -> Optional[datetime]:
     """Parse time string as IST"""
     formats = [
         "%d %B %Y @%I:%M%p",
@@ -105,10 +120,8 @@ def ist_from_string(time_str: str) -> datetime:
         "%d-%m-%Y %H:%M",
         "%d %B %Y %H:%M"
     ]
-    
     for fmt in formats:
         try:
-            # Parse as naive datetime, then localize to IST
             naive_dt = datetime.strptime(time_str, fmt)
             return naive_dt.replace(tzinfo=IST)
         except ValueError:
@@ -118,45 +131,132 @@ def ist_from_string(time_str: str) -> datetime:
 def extract_tweet_url(page_url: str) -> Optional[str]:
     """Extract tweet URL from page URL"""
     try:
-        # Match Twitter/X URL patterns
         patterns = [
             r'https://(?:twitter\.com|x\.com)/[^/]+/status/(\d+)',
             r'https://(?:twitter\.com|x\.com)/.*?/status/(\d+)'
         ]
-        
         for pattern in patterns:
             match = re.search(pattern, page_url)
             if match:
                 tweet_id = match.group(1)
                 return f"https://x.com/i/status/{tweet_id}"
-        
         return None
     except Exception as e:
         logger.error(f"Error extracting tweet URL: {e}")
         return None
 
 class TwitterAutomationBot:
-    """Enhanced Twitter automation bot with individual account management"""
-    
+    """Enhanced Twitter automation bot with individual account management and admin features"""
+
     def __init__(self):
         if BOT_TOKEN == "YOUR_BOT_TOKEN_HERE":
             raise BotError("Please set BOT_TOKEN in the configuration section of main.py")
-            
+
         self.bot = Bot(BOT_TOKEN, parse_mode=ParseMode.HTML)
         self.dp = Dispatcher(storage=MemoryStorage())
         self.router = Router()
         self.dp.include_router(self.router)
+
         self.user_auth = set()
         self.active_tasks = {}
-        
+
+        # Load or initialize admin code and user data
+        self.admin_code = self._load_admin_code()
+        self.authorized_users = self._load_json(USERS_DB_FILE) or []
+        self.blocked_users = self._load_json(BLOCKED_USERS_FILE) or []
+
+        # Add authorized users from db into memory set
+        self.user_auth.update(self.authorized_users)
+
         self._setup_handlers()
-        logger.info("Bot initialized successfully with individual account management")
-    
+        logger.info("Bot initialized successfully with all features")
+
+    def _load_json(self, file_path: Path):
+        """Load JSON data from file"""
+        if file_path.exists():
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception as e:
+                logger.error(f"Error loading JSON from {file_path}: {e}")
+        return None
+
+    def _save_json(self, file_path: Path, data):
+        """Save JSON data to file"""
+        try:
+            with open(file_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+            return True
+        except Exception as e:
+            logger.error(f"Error saving JSON to {file_path}: {e}")
+            return False
+
+    def _load_admin_code(self) -> str:
+        """Load admin code from file or create default"""
+        if ADMIN_CODE_FILE.exists():
+            try:
+                with open(ADMIN_CODE_FILE, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    return data.get("admin_code", DEFAULT_ADMIN_CODE)
+            except Exception as e:
+                logger.error(f"Error loading admin code: {e}")
+        # Save the default code if not present
+        self._save_json(ADMIN_CODE_FILE, {"admin_code": DEFAULT_ADMIN_CODE})
+        return DEFAULT_ADMIN_CODE
+
+    def _save_admin_code(self, new_code: str) -> bool:
+        """Save new admin code"""
+        self.admin_code = new_code
+        return self._save_json(ADMIN_CODE_FILE, {"admin_code": new_code})
+
+    def _is_blocked(self, user_id: int) -> bool:
+        """Check if user is blocked"""
+        return user_id in self.blocked_users
+
+    def _check_auth(self, user_id: int) -> bool:
+        """Check if user is authorized and not blocked"""
+        if self._is_blocked(user_id):
+            return False
+        return user_id in self.user_auth
+
+    def _is_admin(self, user_id: int) -> bool:
+        """Check if user is admin"""
+        return user_id == YOUR_TELEGRAM_USER_ID
+
+    def _authorize_user(self, user_id: int):
+        """Authorize a user"""
+        if user_id not in self.authorized_users:
+            self.authorized_users.append(user_id)
+            self._save_json(USERS_DB_FILE, self.authorized_users)
+        self.user_auth.add(user_id)
+
+    def _block_user(self, user_id: int) -> bool:
+        """Block a user"""
+        if user_id not in self.blocked_users:
+            self.blocked_users.append(user_id)
+            self._save_json(BLOCKED_USERS_FILE, self.blocked_users)
+            # Remove from authorized users in memory and db
+            if user_id in self.user_auth:
+                self.user_auth.remove(user_id)
+            if user_id in self.authorized_users:
+                self.authorized_users.remove(user_id)
+                self._save_json(USERS_DB_FILE, self.authorized_users)
+            return True
+        return False
+
+    def _unblock_user(self, user_id: int) -> bool:
+        """Unblock a user"""
+        if user_id in self.blocked_users:
+            self.blocked_users.remove(user_id)
+            self._save_json(BLOCKED_USERS_FILE, self.blocked_users)
+            return True
+        return False
+
     def _setup_handlers(self):
         """Setup all message handlers"""
         self.router.message(CommandStart())(self.cmd_start)
         self.router.message(AuthState.waiting_for_code)(self.auth_code_check)
-        
+
         # Original commands
         self.router.message(Command("uploadkeys"))(self.upload_keys)
         self.router.message(Command("uploadtweets"))(self.upload_tweets)
@@ -165,79 +265,310 @@ class TwitterAutomationBot:
         self.router.message(Command("cancel"))(self.cancel_command)
         self.router.message(Command("help"))(self.help_command)
         self.router.message(Command("time"))(self.time_command)
-        
-        # New account management commands
+
+        # Account management commands
         self.router.message(Command("addaccount"))(self.add_single_account)
         self.router.message(Command("listaccounts"))(self.list_accounts)
-        
-        # States
+
+        # Admin commands
+        self.router.message(Command("setcode"))(self.admin_set_code)
+        self.router.message(Command("allusers"))(self.admin_list_users)
+        self.router.message(Command("block"))(self.admin_block_user)
+        self.router.message(Command("unblock"))(self.admin_unblock_user)
+        self.router.message(Command("getuser"))(self.admin_get_user_data)
+
+        # States for admin inputs
+        self.router.message(UserBlockState.waiting_for_block_userid)(self.handle_block_userid)
+        self.router.message(UserUnblockState.waiting_for_unblock_userid)(self.handle_unblock_userid)
+        self.router.message(ChangeCodeState.waiting_for_new_code)(self.handle_new_code)
+        self.router.message(GetUserDataState.waiting_for_user_id)(self.handle_get_user_data)
+
+        # Schedule state
         self.router.message(ScheduleState.waiting_for_time)(self.handle_schedule)
-    
+
     async def cmd_start(self, message: Message, state: FSMContext):
         """Start command handler"""
-        try:
-            current_time = ist_now().strftime('%d %B %Y, %I:%M %p IST')
+        if self._is_blocked(message.from_user.id):
+            await message.answer("🚫 You are blocked from using this bot.")
+            return
+
+        current_time = ist_now().strftime('%d %B %Y, %I:%M %p IST')
+        
+        if not self._check_auth(message.from_user.id):
             await message.answer(
                 "🔐 <b>Twitter/X Automation Bot</b>\n\n"
                 f"🇮🇳 Current IST Time: {current_time}\n\n"
                 "✨ <b>New Features:</b>\n"
                 "• Individual account management (/addaccount)\n"
                 "• Account status monitoring (/listaccounts)\n"
-                "• Tweet link extraction after posting\n\n"
+                "• Tweet link extraction after posting\n"
+                "• Admin user management system\n\n"
                 "Welcome! Please enter your authorization code to continue:"
             )
             await state.set_state(AuthState.waiting_for_code)
-            logger.info(f"Start command from user {message.from_user.id}")
-        except Exception as e:
-            logger.error(f"Error in cmd_start: {e}")
-            await message.answer("❌ An error occurred. Please try again.")
+        else:
+            admin_info = "\n🔧 <b>Admin Commands Available</b>" if self._is_admin(message.from_user.id) else ""
+            await message.answer(
+                "🔐 <b>Twitter/X Automation Bot</b>\n\n"
+                f"🇮🇳 Current IST Time: {current_time}\n\n"
+                "You are already authorized. Use /help to see commands."
+                f"{admin_info}"
+            )
+            await state.clear()
 
     async def auth_code_check(self, message: Message, state: FSMContext):
         """Enhanced authentication with input validation"""
-        try:
-            code = message.text.strip() if message.text else ""
-            
-            # Delete the message containing the code for security
-            try:
-                await message.delete()
-            except:
-                pass
-            
-            # Hash comparison for security
-            input_hash = hashlib.sha256(code.encode()).hexdigest()
-            admin_hash = hashlib.sha256(ADMIN_CODE.encode()).hexdigest()
-            
-            if input_hash == admin_hash:
-                self.user_auth.add(message.from_user.id)
-                await message.answer(
-                    "✅ <b>Authorization successful!</b>\n\n"
-                    "📋 <b>Available commands:</b>\n\n"
-                    "🆕 <b>Account Management:</b>\n"
-                    "📁 /addaccount - Add single account (one by one)\n"
-                    "📋 /listaccounts - Show all accounts with status\n\n"
-                    "📋 <b>Main Commands:</b>\n"
-                    "📁 /uploadkeys - Upload accounts.json (traditional bulk)\n"
-                    "📝 /uploadtweets - Upload tweets.txt file\n"
-                    "⏰ /schedule - Schedule posting time (IST)\n"
-                    "🕐 /time - Show current IST time\n"
-                    "📊 /status - Check active tasks\n"
-                    "❌ /cancel - Cancel operations\n"
-                    "❓ /help - Show detailed help\n\n"
-                    "🔗 <b>Auto Features:</b> Tweet links sent after each post!"
-                )
-                await state.clear()
-                logger.info(f"Successful authentication for user {message.from_user.id}")
-            else:
-                await message.answer("❌ Incorrect code. Please try again.")
-                logger.warning(f"Failed authentication from user {message.from_user.id}")
-                
-        except Exception as e:
-            logger.error(f"Error in auth_code_check: {e}")
-            await message.answer("❌ Authentication error. Please try again.")
+        if self._is_blocked(message.from_user.id):
+            await message.answer("🚫 You are blocked from using this bot.")
+            return
 
-    def _check_auth(self, user_id: int) -> bool:
-        """Check if user is authorized"""
-        return user_id in self.user_auth
+        code = message.text.strip() if message.text else ""
+        
+        # Delete the message containing the code for security
+        try:
+            await message.delete()
+        except:
+            pass
+
+        # Hash comparison for security
+        input_hash = hashlib.sha256(code.encode()).hexdigest()
+        admin_hash = hashlib.sha256(self.admin_code.encode()).hexdigest()
+
+        if input_hash == admin_hash:
+            self._authorize_user(message.from_user.id)
+            admin_commands = ""
+            if self._is_admin(message.from_user.id):
+                admin_commands = (
+                    "\n\n🔧 <b>Admin Commands:</b>\n"
+                    "/setcode - Change admin code\n"
+                    "/allusers - List all users\n"
+                    "/block - Block user\n"
+                    "/unblock - Unblock user\n"
+                    "/getuser - Get user data"
+                )
+            
+            await message.answer(
+                "✅ <b>Authorization successful!</b>\n\n"
+                "📋 <b>Available commands:</b>\n\n"
+                "🆕 <b>Account Management:</b>\n"
+                "📁 /addaccount - Add single account (one by one)\n"
+                "📋 /listaccounts - Show all accounts with status\n\n"
+                "📋 <b>Main Commands:</b>\n"
+                "📁 /uploadkeys - Upload accounts.json (traditional bulk)\n"
+                "📝 /uploadtweets - Upload tweets.txt file\n"
+                "⏰ /schedule - Schedule posting time (IST)\n"
+                "🕐 /time - Show current IST time\n"
+                "📊 /status - Check active tasks\n"
+                "❌ /cancel - Cancel operations\n"
+                "❓ /help - Show detailed help\n\n"
+                "🔗 <b>Auto Features:</b> Tweet links sent after each post!"
+                f"{admin_commands}"
+            )
+            await state.clear()
+            logger.info(f"Successful authentication for user {message.from_user.id}")
+        else:
+            await message.answer("❌ Incorrect code. Please try again.")
+            logger.warning(f"Failed authentication from user {message.from_user.id}")
+
+    # Admin Commands Implementation
+
+    async def admin_set_code(self, message: Message, state: FSMContext):
+        """Admin command to set new approval code"""
+        if not self._is_admin(message.from_user.id):
+            await message.answer("🚫 Only admin can change the approval code.")
+            return
+        
+        await message.answer("📝 Please send the new admin approval code:")
+        await state.set_state(ChangeCodeState.waiting_for_new_code)
+
+    async def handle_new_code(self, message: Message, state: FSMContext):
+        """Handle new admin code input"""
+        if not self._is_admin(message.from_user.id):
+            await message.answer("🚫 Only admin can change the approval code.")
+            await state.clear()
+            return
+
+        new_code = message.text.strip()
+        if len(new_code) < 4:
+            await message.answer("❌ Code too short. Please provide at least 4 characters.")
+            return
+
+        # Delete the message containing the new code for security
+        try:
+            await message.delete()
+        except:
+            pass
+
+        success = self._save_admin_code(new_code)
+        if success:
+            await message.answer(f"✅ Admin approval code changed successfully!")
+            logger.info(f"Admin code changed by user {message.from_user.id}")
+        else:
+            await message.answer("❌ Failed to save new code, please try again.")
+        
+        await state.clear()
+
+    async def admin_list_users(self, message: Message):
+        """Admin command to list all users"""
+        if not self._is_admin(message.from_user.id):
+            await message.answer("🚫 Only admin can view user list.")
+            return
+
+        users_text = ""
+        for uid in self.authorized_users:
+            block_status = "🚫 Blocked" if uid in self.blocked_users else "✅ Active"
+            users_text += f"User ID: <code>{uid}</code> - Status: {block_status}\n"
+        
+        if not users_text:
+            users_text = "No authorized users found."
+
+        blocked_text = ""
+        if self.blocked_users:
+            blocked_text = f"\n\n🚫 <b>Blocked Users:</b>\n"
+            for uid in self.blocked_users:
+                blocked_text += f"User ID: <code>{uid}</code>\n"
+
+        await message.answer(
+            f"👥 <b>User Management Dashboard:</b>\n\n"
+            f"📊 <b>Statistics:</b>\n"
+            f"• Total Authorized: {len(self.authorized_users)}\n"
+            f"• Active Users: {len([u for u in self.authorized_users if u not in self.blocked_users])}\n"
+            f"• Blocked Users: {len(self.blocked_users)}\n\n"
+            f"✅ <b>Authorized Users:</b>\n{users_text}"
+            f"{blocked_text}"
+        )
+
+    async def admin_block_user(self, message: Message, state: FSMContext):
+        """Admin command to block a user"""
+        if not self._is_admin(message.from_user.id):
+            await message.answer("🚫 Only admin can block users.")
+            return
+        
+        await message.answer("🔒 Please reply with User ID to block:")
+        await state.set_state(UserBlockState.waiting_for_block_userid)
+
+    async def handle_block_userid(self, message: Message, state: FSMContext):
+        """Handle block user ID input"""
+        try:
+            uid = int(message.text.strip())
+        except ValueError:
+            await message.answer("❌ Invalid user ID format. Please send a numeric User ID.")
+            return
+
+        if uid == YOUR_TELEGRAM_USER_ID:
+            await message.answer("❌ Cannot block admin user.")
+            await state.clear()
+            return
+
+        if self._block_user(uid):
+            await message.answer(f"🚫 User <code>{uid}</code> has been blocked successfully.")
+            logger.info(f"User {uid} blocked by admin {message.from_user.id}")
+        else:
+            await message.answer(f"⚠️ User <code>{uid}</code> was already blocked.")
+        
+        await state.clear()
+
+    async def admin_unblock_user(self, message: Message, state: FSMContext):
+        """Admin command to unblock a user"""
+        if not self._is_admin(message.from_user.id):
+            await message.answer("🚫 Only admin can unblock users.")
+            return
+        
+        await message.answer("🔓 Please reply with User ID to unblock:")
+        await state.set_state(UserUnblockState.waiting_for_unblock_userid)
+
+    async def handle_unblock_userid(self, message: Message, state: FSMContext):
+        """Handle unblock user ID input"""
+        try:
+            uid = int(message.text.strip())
+        except ValueError:
+            await message.answer("❌ Invalid user ID format. Please send a numeric User ID.")
+            return
+
+        if self._unblock_user(uid):
+            await message.answer(f"✅ User <code>{uid}</code> has been unblocked successfully.")
+            logger.info(f"User {uid} unblocked by admin {message.from_user.id}")
+        else:
+            await message.answer(f"⚠️ User <code>{uid}</code> is not in blocked list.")
+        
+        await state.clear()
+
+    async def admin_get_user_data(self, message: Message, state: FSMContext):
+        """Admin command to get user data"""
+        if not self._is_admin(message.from_user.id):
+            await message.answer("🚫 Only admin can access user data.")
+            return
+        
+        await message.answer("🔍 Please reply with User ID to get data:")
+        await state.set_state(GetUserDataState.waiting_for_user_id)
+
+    async def handle_get_user_data(self, message: Message, state: FSMContext):
+        """Handle get user data request"""
+        try:
+            uid = int(message.text.strip())
+        except ValueError:
+            await message.answer("❌ Invalid user ID format. Please send a numeric User ID.")
+            return
+
+        user_dir = DATA_DIR / str(uid)
+        accounts_file = user_dir / "accounts.json"
+        tweets_file = user_dir / "tweets.txt"
+
+        # Check if user exists
+        if uid not in self.authorized_users and uid not in self.blocked_users:
+            await message.answer(f"❌ User <code>{uid}</code> not found in database.")
+            await state.clear()
+            return
+
+        # User status
+        status = "🚫 Blocked" if uid in self.blocked_users else "✅ Active"
+        auth_status = "✅ Authorized" if uid in self.authorized_users else "❌ Not Authorized"
+
+        # Check files
+        accounts_count = 0
+        tweets_count = 0
+        
+        if accounts_file.exists():
+            try:
+                async with aiofiles.open(accounts_file, 'r') as f:
+                    accounts_data = json.loads(await f.read())
+                    accounts_count = len(accounts_data)
+            except Exception:
+                pass
+
+        if tweets_file.exists():
+            try:
+                async with aiofiles.open(tweets_file, 'r') as f:
+                    tweets_content = await f.read()
+                    tweets_count = len([t.strip() for t in tweets_content.split("\n\n") if t.strip()])
+            except Exception:
+                pass
+
+        # Send user data summary
+        await message.answer(
+            f"📊 <b>User Data Report:</b>\n\n"
+            f"🆔 <b>User ID:</b> <code>{uid}</code>\n"
+            f"📈 <b>Status:</b> {status}\n"
+            f"🔑 <b>Authorization:</b> {auth_status}\n\n"
+            f"📁 <b>Files:</b>\n"
+            f"• Accounts: {accounts_count} account(s)\n"
+            f"• Tweets: {tweets_count} tweet(s)\n\n"
+            f"📂 <b>Data Directory:</b> <code>data/{uid}/</code>"
+        )
+
+        # Offer to send files if they exist
+        if accounts_count > 0 or tweets_count > 0:
+            await message.answer(
+                f"📤 <b>Available Files for User {uid}:</b>\n\n"
+                f"Use these commands to download:\n"
+                f"• Send 'accounts {uid}' to get accounts.json\n"
+                f"• Send 'tweets {uid}' to get tweets.txt"
+            )
+
+        await state.clear()
+
+    # Copy all your existing methods here (time_command, add_single_account, list_accounts, etc.)
+    # I'll include the essential ones:
 
     async def time_command(self, message: Message):
         """Show current IST time"""
@@ -254,7 +585,7 @@ class TwitterAutomationBot:
         )
 
     async def add_single_account(self, message: Message):
-        """Add single account - NEW FEATURE"""
+        """Add single account - Enhanced with block check"""
         if not self._check_auth(message.from_user.id):
             await message.answer("🔒 Unauthorized. Use /start to login.")
             return
@@ -370,7 +701,7 @@ class TwitterAutomationBot:
                 temp_file.unlink()
 
     async def list_accounts(self, message: Message):
-        """List all accounts with details - NEW FEATURE"""
+        """List all accounts with details - Enhanced with block check"""
         if not self._check_auth(message.from_user.id):
             await message.answer("🔒 Unauthorized. Use /start to login.")
             return
@@ -478,7 +809,7 @@ class TwitterAutomationBot:
             await message.answer("❌ Error retrieving accounts list.")
 
     async def upload_keys(self, message: Message):
-        """Enhanced accounts file upload with validation"""
+        """Enhanced accounts file upload with validation and block check"""
         if not self._check_auth(message.from_user.id):
             await message.answer("🔒 Unauthorized. Use /start to login.")
             return
@@ -536,7 +867,7 @@ class TwitterAutomationBot:
             await message.answer("❌ Error uploading file. Please try again.")
 
     async def upload_tweets(self, message: Message):
-        """Enhanced tweets file upload with validation"""
+        """Enhanced tweets file upload with validation and block check"""
         if not self._check_auth(message.from_user.id):
             await message.answer("🔒 Unauthorized. Use /start to login.")
             return
@@ -598,12 +929,24 @@ class TwitterAutomationBot:
             await message.answer("❌ Error uploading file. Please try again.")
 
     async def help_command(self, message: Message):
-        """Help command with enhanced account management"""
+        """Enhanced help command with admin features"""
         if not self._check_auth(message.from_user.id):
             await message.answer("🔒 Unauthorized. Use /start to login.")
             return
 
-        help_text = """
+        admin_help = ""
+        if self._is_admin(message.from_user.id):
+            admin_help = """
+<b>🔧 Admin Commands:</b>
+• /setcode - Change admin approval code
+• /allusers - View all users and their status
+• /block - Block a user
+• /unblock - Unblock a user
+• /getuser - Get user data and files
+
+"""
+
+        help_text = f"""
 🤖 <b>Twitter/X Automation Bot - Enhanced Help</b>
 
 <b>🆕 Account Management:</b>
@@ -619,21 +962,21 @@ class TwitterAutomationBot:
 • /cancel - Cancel active operations
 • /help - Show this help
 
-<b>🔄 Recommended Workflow:</b>
+{admin_help}<b>🔄 Recommended Workflow:</b>
 1. Use /addaccount to add accounts one by one
 2. Use /listaccounts to verify all accounts
 3. Use /uploadtweets to upload your tweets
 4. Use /schedule to start automated posting
 
 <b>📄 Single Account Format:</b>
-<code>{
+<code>{{
   "cookies": [
-    {"name": "auth_token", "value": "your_token", "domain": ".x.com"},
-    {"name": "ct0", "value": "your_ct0", "domain": ".x.com"},
-    {"name": "twid", "value": "u%3Dyour_userid", "domain": ".x.com"}
+    {{"name": "auth_token", "value": "your_token", "domain": ".x.com"}},
+    {{"name": "ct0", "value": "your_ct0", "domain": ".x.com"}},
+    {{"name": "twid", "value": "u%3Dyour_userid", "domain": ".x.com"}}
   ],
-  "origins": [{"origin": "https://x.com", "localStorage": []}]
-}</code>
+  "origins": [{{"origin": "https://x.com", "localStorage": []}}]
+}}</code>
 
 <b>📅 IST Time Formats:</b>
 • 3 August 2025 @12:31PM
@@ -647,10 +990,10 @@ class TwitterAutomationBot:
 • Account status monitoring
 • Automatic tweet link extraction
 • Real-time posting progress
+• Admin user management system
 
 <b>🇮🇳 Timezone:</b>
 All times are in IST (Indian Standard Time, UTC+5:30)
-Current IST time: Use /time command
 
 <b>⚠️ Important:</b>
 • Respect Twitter/X terms of service
@@ -661,7 +1004,7 @@ Current IST time: Use /time command
         await message.answer(help_text)
 
     async def schedule_prompt(self, message: Message, state: FSMContext):
-        """Enhanced scheduling prompt with IST timezone"""
+        """Enhanced scheduling prompt with IST timezone and block check"""
         if not self._check_auth(message.from_user.id):
             await message.answer("🔒 Unauthorized. Use /start to login.")
             return
@@ -681,7 +1024,12 @@ Current IST time: Use /time command
         await state.set_state(ScheduleState.waiting_for_time)
 
     async def handle_schedule(self, message: Message, state: FSMContext):
-        """Enhanced scheduling with IST timezone support"""
+        """Enhanced scheduling with IST timezone support and block check"""
+        if not self._check_auth(message.from_user.id):
+            await message.answer("🔒 Unauthorized. Use /start to login.")
+            await state.clear()
+            return
+
         try:
             time_input = message.text.strip()
             
@@ -773,7 +1121,7 @@ Current IST time: Use /time command
             await message.answer("❌ Error creating schedule. Please try again.")
 
     async def status_command(self, message: Message):
-        """Check status of active tasks"""
+        """Check status of active tasks with block check"""
         if not self._check_auth(message.from_user.id):
             await message.answer("🔒 Unauthorized. Use /start to login.")
             return
@@ -799,7 +1147,7 @@ Current IST time: Use /time command
             )
 
     async def cancel_command(self, message: Message):
-        """Cancel active scheduling task"""
+        """Cancel active scheduling task with block check"""
         if not self._check_auth(message.from_user.id):
             await message.answer("🔒 Unauthorized. Use /start to login.")
             return
@@ -992,6 +1340,11 @@ Current IST time: Use /time command
             
             for i, tweet in enumerate(tweets, 1):
                 try:
+                    # Check if user is still authorized during posting
+                    if not self._check_auth(user_id):
+                        await message.answer("❌ <b>Posting Stopped:</b> User authorization revoked during posting.")
+                        break
+                    
                     # Add random delay between posts
                     if i > 1:
                         delay = random.uniform(POST_DELAY_MIN, POST_DELAY_MAX)
@@ -1080,10 +1433,11 @@ Current IST time: Use /time command
     async def start_bot(self):
         """Start the bot with proper error handling"""
         try:
-            logger.info("Starting Twitter/X Automation Bot with enhanced account management...")
+            logger.info("Starting Twitter/X Automation Bot with enhanced features...")
             logger.info(f"Data directory: {DATA_DIR.absolute()}")
             logger.info(f"Browser headless mode: {BROWSER_HEADLESS}")
             logger.info(f"Tweet link wait time: {TWEET_LINK_WAIT_TIME} seconds")
+            logger.info(f"Admin user ID: {YOUR_TELEGRAM_USER_ID}")
             logger.info(f"Current IST time: {ist_now().strftime('%d %B %Y, %I:%M %p IST')}")
             
             await self.dp.start_polling(self.bot)
@@ -1102,10 +1456,15 @@ def main():
             print("Edit main.py and replace 'YOUR_BOT_TOKEN_HERE' with your actual bot token")
             print("Get your token from @BotFather on Telegram")
             return
+
+        if YOUR_TELEGRAM_USER_ID == 123456789:
+            print("⚠️  Warning: Please set YOUR_TELEGRAM_USER_ID to your actual Telegram user ID for admin features")
         
         print(f"🇮🇳 Starting bot with IST timezone...")
         print(f"🔗 Tweet link extraction: ENABLED")
         print(f"🆕 Individual account management: ENABLED")
+        print(f"🔧 Admin features: ENABLED")
+        print(f"👨‍💼 Admin user ID: {YOUR_TELEGRAM_USER_ID}")
         print(f"🕐 Current IST time: {ist_now().strftime('%d %B %Y, %I:%M %p IST')}")
         
         # Create and start bot
