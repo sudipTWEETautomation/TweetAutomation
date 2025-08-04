@@ -11,7 +11,7 @@ from pathlib import Path
 from contextlib import asynccontextmanager
 
 # Third-party imports
-from aiogram import Bot, Dispatcher, Router
+from aiogram import Bot, Dispatcher, Router, F
 from aiogram.enums import ParseMode
 from aiogram.filters import Command, CommandStart
 from aiogram.types import Message
@@ -102,6 +102,13 @@ class ChangeCodeState(StatesGroup):
 
 class GetUserDataState(StatesGroup):
     waiting_for_user_id = State()
+
+# File upload states - THIS IS THE FIX
+class UploadKeysState(StatesGroup):
+    waiting_for_keys_file = State()
+
+class UploadTweetsState(StatesGroup):
+    waiting_for_tweets_file = State()
 
 class BotError(Exception):
     """Custom exception for bot errors"""
@@ -253,13 +260,13 @@ class TwitterAutomationBot:
         return False
 
     def _setup_handlers(self):
-        """Setup all message handlers"""
+        """Setup all message handlers - FIXED VERSION"""
         self.router.message(CommandStart())(self.cmd_start)
         self.router.message(AuthState.waiting_for_code)(self.auth_code_check)
 
-        # Original commands
-        self.router.message(Command("uploadkeys"))(self.upload_keys)
-        self.router.message(Command("uploadtweets"))(self.upload_tweets)
+        # Original commands - Modified to set states
+        self.router.message(Command("uploadkeys"))(self.upload_keys_command)
+        self.router.message(Command("uploadtweets"))(self.upload_tweets_command)
         self.router.message(Command("schedule"))(self.schedule_prompt)
         self.router.message(Command("status"))(self.status_command)
         self.router.message(Command("cancel"))(self.cancel_command)
@@ -285,6 +292,10 @@ class TwitterAutomationBot:
 
         # Schedule state
         self.router.message(ScheduleState.waiting_for_time)(self.handle_schedule)
+
+        # FILE UPLOAD HANDLERS - THIS IS THE FIX!
+        self.router.message(UploadKeysState.waiting_for_keys_file, F.document)(self.handle_keys_file)
+        self.router.message(UploadTweetsState.waiting_for_tweets_file, F.document)(self.handle_tweets_file)
 
     async def cmd_start(self, message: Message, state: FSMContext):
         """Start command handler"""
@@ -567,9 +578,6 @@ class TwitterAutomationBot:
 
         await state.clear()
 
-    # Copy all your existing methods here (time_command, add_single_account, list_accounts, etc.)
-    # I'll include the essential ones:
-
     async def time_command(self, message: Message):
         """Show current IST time"""
         if not self._check_auth(message.from_user.id):
@@ -583,6 +591,146 @@ class TwitterAutomationBot:
             f"⏰ {current_time.strftime('%I:%M %p')}\n"
             f"🌍 Timezone: Asia/Kolkata (UTC+5:30)"
         )
+
+    # FIXED FILE UPLOAD HANDLERS
+    
+    async def upload_keys_command(self, message: Message, state: FSMContext):
+        """Command to initiate keys upload - sets state"""
+        if not self._check_auth(message.from_user.id):
+            await message.answer("🔒 Unauthorized. Use /start to login.")
+            return
+
+        await message.answer(
+            "📎 Please upload your accounts.json file.\n\n"
+            "💡 <b>Format:</b> Playwright storage state JSON file\n"
+            "📏 <b>Max size:</b> 10MB\n\n"
+            "🆕 <b>Alternative:</b> Use /addaccount to add accounts one by one"
+        )
+        await state.set_state(UploadKeysState.waiting_for_keys_file)
+
+    async def handle_keys_file(self, message: Message, state: FSMContext):
+        """Handle accounts.json file upload"""
+        if not self._check_auth(message.from_user.id):
+            await message.answer("🔒 Unauthorized. Use /start to login.")
+            await state.clear()
+            return
+
+        try:
+            # Validate file
+            if not message.document.file_name.endswith('.json'):
+                await message.answer("❌ Please upload a JSON file (.json extension required)")
+                return
+
+            if message.document.file_size > MAX_FILE_SIZE:
+                await message.answer(f"❌ File too large. Maximum size is {MAX_FILE_SIZE//1024//1024}MB")
+                return
+
+            # Create user directory
+            user_dir = DATA_DIR / str(message.from_user.id)
+            user_dir.mkdir(parents=True, exist_ok=True)
+            file_path = user_dir / "accounts.json"
+
+            # Download file
+            await self.bot.download(message.document, destination=file_path)
+            logger.info(f"Downloaded accounts.json for user {message.from_user.id}")
+            
+            # Validate JSON structure
+            async with aiofiles.open(file_path, 'r', encoding='utf-8') as f:
+                content = await f.read()
+                data = json.loads(content)
+                
+            # Validate schema
+            jsonschema.validate(data, ACCOUNTS_SCHEMA)
+
+            await message.answer(
+                f"✅ <b>Accounts uploaded successfully!</b>\n"
+                f"📊 Found {len(data)} account(s)\n"
+                f"💾 Saved to: accounts.json\n"
+                f"🔗 Bot will extract tweet links after posting\n\n"
+                f"💡 Use /listaccounts to see account details"
+            )
+            logger.info(f"Accounts file uploaded by user {message.from_user.id} ({len(data)} accounts)")
+
+        except json.JSONDecodeError:
+            await message.answer("❌ Invalid JSON file format. Please check your file.")
+        except jsonschema.ValidationError as e:
+            await message.answer(f"❌ Invalid file structure: {e.message}")
+        except Exception as e:
+            logger.error(f"Error uploading accounts: {e}")
+            await message.answer("❌ Error uploading file. Please try again.")
+        finally:
+            await state.clear()
+
+    async def upload_tweets_command(self, message: Message, state: FSMContext):
+        """Command to initiate tweets upload - sets state"""
+        if not self._check_auth(message.from_user.id):
+            await message.answer("🔒 Unauthorized. Use /start to login.")
+            return
+
+        await message.answer(
+            "📎 Please upload your tweets.txt file.\n\n"
+            "💡 <b>Format:</b> Plain text, separate tweets with double newline\n"
+            "📏 <b>Max size:</b> 5MB\n"
+            "📝 <b>Example:</b>\n"
+            "<code>First tweet here\n\n"
+            "Second tweet here\n\n"
+            "Third tweet here</code>"
+        )
+        await state.set_state(UploadTweetsState.waiting_for_tweets_file)
+
+    async def handle_tweets_file(self, message: Message, state: FSMContext):
+        """Handle tweets.txt file upload"""
+        if not self._check_auth(message.from_user.id):
+            await message.answer("🔒 Unauthorized. Use /start to login.")
+            await state.clear()
+            return
+
+        try:
+            if not message.document.file_name.endswith('.txt'):
+                await message.answer("❌ Please upload a TXT file (.txt extension required)")
+                return
+
+            if message.document.file_size > MAX_FILE_SIZE // 2:  # 5MB for tweets
+                await message.answer("❌ File too large. Maximum size is 5MB")
+                return
+
+            user_dir = DATA_DIR / str(message.from_user.id)
+            user_dir.mkdir(parents=True, exist_ok=True)
+            file_path = user_dir / "tweets.txt"
+
+            await self.bot.download(message.document, destination=file_path)
+            logger.info(f"Downloaded tweets.txt for user {message.from_user.id}")
+
+            # Process and validate tweets
+            async with aiofiles.open(file_path, 'r', encoding='utf-8') as f:
+                content = await f.read()
+                tweets = [t.strip() for t in content.split("\n\n") if t.strip()]
+
+            if not tweets:
+                await message.answer("❌ No tweets found in file. Make sure tweets are separated by double newlines.")
+                return
+
+            # Check tweet lengths
+            long_tweets = [(i+1, len(tweet)) for i, tweet in enumerate(tweets) 
+                          if len(tweet) > MAX_TWEET_LENGTH]
+            
+            warning_msg = ""
+            if long_tweets:
+                warning_msg = f"\n⚠️ <b>Warning:</b> {len(long_tweets)} tweets exceed {MAX_TWEET_LENGTH} characters"
+
+            await message.answer(
+                f"✅ <b>Tweets uploaded successfully!</b>\n"
+                f"📊 Found {len(tweets)} tweet(s)\n"
+                f"💾 Saved to: tweets.txt{warning_msg}\n"
+                f"🔗 Tweet links will be sent after each post"
+            )
+            logger.info(f"Tweets file uploaded by user {message.from_user.id} ({len(tweets)} tweets)")
+
+        except Exception as e:
+            logger.error(f"Error uploading tweets: {e}")
+            await message.answer("❌ Error uploading file. Please try again.")
+        finally:
+            await state.clear()
 
     async def add_single_account(self, message: Message):
         """Add single account - Enhanced with block check"""
@@ -807,126 +955,6 @@ class TwitterAutomationBot:
         except Exception as e:
             logger.error(f"Error listing accounts: {e}")
             await message.answer("❌ Error retrieving accounts list.")
-
-    async def upload_keys(self, message: Message):
-        """Enhanced accounts file upload with validation and block check"""
-        if not self._check_auth(message.from_user.id):
-            await message.answer("🔒 Unauthorized. Use /start to login.")
-            return
-
-        if not message.document:
-            await message.answer(
-                "📎 Please upload your accounts.json file.\n\n"
-                "💡 <b>Format:</b> Playwright storage state JSON file\n"
-                "📏 <b>Max size:</b> 10MB\n\n"
-                "🆕 <b>Alternative:</b> Use /addaccount to add accounts one by one"
-            )
-            return
-
-        try:
-            # Validate file
-            if not message.document.file_name.endswith('.json'):
-                await message.answer("❌ Please upload a JSON file (.json extension required)")
-                return
-
-            if message.document.file_size > MAX_FILE_SIZE:
-                await message.answer(f"❌ File too large. Maximum size is {MAX_FILE_SIZE//1024//1024}MB")
-                return
-
-            # Create user directory
-            user_dir = DATA_DIR / str(message.from_user.id)
-            user_dir.mkdir(parents=True, exist_ok=True)
-            file_path = user_dir / "accounts.json"
-
-            # Download file
-            await self.bot.download(message.document, destination=file_path)
-            
-            # Validate JSON structure
-            async with aiofiles.open(file_path, 'r', encoding='utf-8') as f:
-                content = await f.read()
-                data = json.loads(content)
-                
-            # Validate schema
-            jsonschema.validate(data, ACCOUNTS_SCHEMA)
-
-            await message.answer(
-                f"✅ <b>Accounts uploaded successfully!</b>\n"
-                f"📊 Found {len(data)} account(s)\n"
-                f"💾 Saved to: accounts.json\n"
-                f"🔗 Bot will extract tweet links after posting\n\n"
-                f"💡 Use /listaccounts to see account details"
-            )
-            logger.info(f"Accounts file uploaded by user {message.from_user.id} ({len(data)} accounts)")
-
-        except json.JSONDecodeError:
-            await message.answer("❌ Invalid JSON file format. Please check your file.")
-        except jsonschema.ValidationError as e:
-            await message.answer(f"❌ Invalid file structure: {e.message}")
-        except Exception as e:
-            logger.error(f"Error uploading accounts: {e}")
-            await message.answer("❌ Error uploading file. Please try again.")
-
-    async def upload_tweets(self, message: Message):
-        """Enhanced tweets file upload with validation and block check"""
-        if not self._check_auth(message.from_user.id):
-            await message.answer("🔒 Unauthorized. Use /start to login.")
-            return
-
-        if not message.document:
-            await message.answer(
-                "📎 Please upload your tweets.txt file.\n\n"
-                "💡 <b>Format:</b> Plain text, separate tweets with double newline\n"
-                "📏 <b>Max size:</b> 5MB\n"
-                "📝 <b>Example:</b>\n"
-                "<code>First tweet here\n\n"
-                "Second tweet here\n\n"
-                "Third tweet here</code>"
-            )
-            return
-
-        try:
-            if not message.document.file_name.endswith('.txt'):
-                await message.answer("❌ Please upload a TXT file (.txt extension required)")
-                return
-
-            if message.document.file_size > MAX_FILE_SIZE // 2:  # 5MB for tweets
-                await message.answer("❌ File too large. Maximum size is 5MB")
-                return
-
-            user_dir = DATA_DIR / str(message.from_user.id)
-            user_dir.mkdir(parents=True, exist_ok=True)
-            file_path = user_dir / "tweets.txt"
-
-            await self.bot.download(message.document, destination=file_path)
-
-            # Process and validate tweets
-            async with aiofiles.open(file_path, 'r', encoding='utf-8') as f:
-                content = await f.read()
-                tweets = [t.strip() for t in content.split("\n\n") if t.strip()]
-
-            if not tweets:
-                await message.answer("❌ No tweets found in file. Make sure tweets are separated by double newlines.")
-                return
-
-            # Check tweet lengths
-            long_tweets = [(i+1, len(tweet)) for i, tweet in enumerate(tweets) 
-                          if len(tweet) > MAX_TWEET_LENGTH]
-            
-            warning_msg = ""
-            if long_tweets:
-                warning_msg = f"\n⚠️ <b>Warning:</b> {len(long_tweets)} tweets exceed {MAX_TWEET_LENGTH} characters"
-
-            await message.answer(
-                f"✅ <b>Tweets uploaded successfully!</b>\n"
-                f"📊 Found {len(tweets)} tweet(s)\n"
-                f"💾 Saved to: tweets.txt{warning_msg}\n"
-                f"🔗 Tweet links will be sent after each post"
-            )
-            logger.info(f"Tweets file uploaded by user {message.from_user.id} ({len(tweets)} tweets)")
-
-        except Exception as e:
-            logger.error(f"Error uploading tweets: {e}")
-            await message.answer("❌ Error uploading file. Please try again.")
 
     async def help_command(self, message: Message):
         """Enhanced help command with admin features"""
