@@ -45,11 +45,11 @@ YOUR_TELEGRAM_USER_ID = 6535216093  # Replace with your actual Telegram user ID
 DATA_DIR = Path("data")
 LOG_LEVEL = "INFO"
 MAX_TWEET_LENGTH = 280
-BROWSER_HEADLESS = True  # Set to False to see browser
+BROWSER_HEADLESS = False  # Changed to False to debug navigation issues
 POST_DELAY_MIN = 5  # seconds between posts
 POST_DELAY_MAX = 15
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
-TWEET_LINK_WAIT_TIME = 10  # seconds to wait for tweet URL after posting
+TWEET_LINK_WAIT_TIME = 15  # Increased wait time for tweet URL
 
 # IST Timezone (UTC+5:30)
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -103,7 +103,7 @@ class ChangeCodeState(StatesGroup):
 class GetUserDataState(StatesGroup):
     waiting_for_user_id = State()
 
-# File upload states - THIS IS THE FIX
+# File upload states
 class UploadKeysState(StatesGroup):
     waiting_for_keys_file = State()
 
@@ -260,7 +260,7 @@ class TwitterAutomationBot:
         return False
 
     def _setup_handlers(self):
-        """Setup all message handlers - FIXED VERSION"""
+        """Setup all message handlers"""
         self.router.message(CommandStart())(self.cmd_start)
         self.router.message(AuthState.waiting_for_code)(self.auth_code_check)
 
@@ -293,7 +293,7 @@ class TwitterAutomationBot:
         # Schedule state
         self.router.message(ScheduleState.waiting_for_time)(self.handle_schedule)
 
-        # FILE UPLOAD HANDLERS - THIS IS THE FIX!
+        # FILE UPLOAD HANDLERS
         self.router.message(UploadKeysState.waiting_for_keys_file, F.document)(self.handle_keys_file)
         self.router.message(UploadTweetsState.waiting_for_tweets_file, F.document)(self.handle_tweets_file)
 
@@ -308,7 +308,7 @@ class TwitterAutomationBot:
         if not self._check_auth(message.from_user.id):
             await message.answer(
                 "🔐 <b>Twitter/X Automation Bot</b>\n\n"
-                f"🕒 Current IST Time: {current_time}\n\n"
+                f"🇮🇳 Current IST Time: {current_time}\n\n"
                 "✨ <b>New Features:</b>\n"
                 "• Individual account management (/addaccount)\n"
                 "• Account status monitoring (/listaccounts)\n"
@@ -321,7 +321,7 @@ class TwitterAutomationBot:
             admin_info = "\n🔧 <b>Admin Commands Available</b>" if self._is_admin(message.from_user.id) else ""
             await message.answer(
                 "🔐 <b>Twitter/X Automation Bot</b>\n\n"
-                f"🕒 Current IST Time: {current_time}\n\n"
+                f"🇮🇳 Current IST Time: {current_time}\n\n"
                 "You are already authorized. Use /help to see commands."
                 f"{admin_info}"
             )
@@ -592,7 +592,7 @@ class TwitterAutomationBot:
             f"🌍 Timezone: Asia/Kolkata (UTC+5:30)"
         )
 
-    # FIXED FILE UPLOAD HANDLERS
+    # FILE UPLOAD HANDLERS
     
     async def upload_keys_command(self, message: Message, state: FSMContext):
         """Command to initiate keys upload - sets state"""
@@ -733,7 +733,7 @@ class TwitterAutomationBot:
             await state.clear()
 
     async def add_single_account(self, message: Message):
-        """Add single account - FIXED VERSION with proper emoji usage"""
+        """Add single account"""
         if not self._check_auth(message.from_user.id):
             await message.answer("🔒 Unauthorized. Use /start to login.")
             return
@@ -864,7 +864,7 @@ class TwitterAutomationBot:
                     pass
 
     async def list_accounts(self, message: Message):
-        """List all accounts with details - Enhanced with block check"""
+        """List all accounts with details"""
         if not self._check_auth(message.from_user.id):
             await message.answer("🔒 Unauthorized. Use /start to login.")
             return
@@ -1049,7 +1049,7 @@ All times are in IST (Indian Standard Time, UTC+5:30)
         await message.answer(help_text)
 
     async def schedule_prompt(self, message: Message, state: FSMContext):
-        """Enhanced scheduling prompt with IST timezone and block check"""
+        """Enhanced scheduling prompt with IST timezone"""
         if not self._check_auth(message.from_user.id):
             await message.answer("🔒 Unauthorized. Use /start to login.")
             return
@@ -1057,7 +1057,7 @@ All times are in IST (Indian Standard Time, UTC+5:30)
         current_time = ist_now().strftime('%d %B %Y, %I:%M %p IST')
         await message.answer(
             "📅 <b>Schedule Posting Time (IST)</b>\n\n"
-            f"🕒 Current IST Time: {current_time}\n\n"
+            f"🇮🇳 Current IST Time: {current_time}\n\n"
             "Enter the time in one of these formats:\n\n"
             "📸 <code>3 August 2025 @12:31PM</code>\n"
             "📸 <code>03/08/2025 12:31</code>\n"
@@ -1069,7 +1069,7 @@ All times are in IST (Indian Standard Time, UTC+5:30)
         await state.set_state(ScheduleState.waiting_for_time)
 
     async def handle_schedule(self, message: Message, state: FSMContext):
-        """Enhanced scheduling with IST timezone support and block check"""
+        """Enhanced scheduling with IST timezone support"""
         if not self._check_auth(message.from_user.id):
             await message.answer("🔒 Unauthorized. Use /start to login.")
             await state.clear()
@@ -1166,7 +1166,7 @@ All times are in IST (Indian Standard Time, UTC+5:30)
             await message.answer("❌ Error creating schedule. Please try again.")
 
     async def status_command(self, message: Message):
-        """Check status of active tasks with block check"""
+        """Check status of active tasks"""
         if not self._check_auth(message.from_user.id):
             await message.answer("🔒 Unauthorized. Use /start to login.")
             return
@@ -1180,19 +1180,19 @@ All times are in IST (Indian Standard Time, UTC+5:30)
                 f"📊 <b>Task Status: ACTIVE</b>\n"
                 f"🆔 Task ID: {id(task)}\n"
                 f"⏳ Status: Running\n"
-                f"🕒 Current IST: {current_time}\n"
+                f"🇮🇳 Current IST: {current_time}\n"
                 f"🔗 Tweet links: Auto-extract enabled\n"
                 f"📱 Use /cancel to stop"
             )
         else:
             await message.answer(
                 f"📊 <b>Task Status: IDLE</b>\n"
-                f"🕒 Current IST: {current_time}\n"
+                f"🇮🇳 Current IST: {current_time}\n"
                 f"No active tasks running."
             )
 
     async def cancel_command(self, message: Message):
-        """Cancel active scheduling task with block check"""
+        """Cancel active scheduling task"""
         if not self._check_auth(message.from_user.id):
             await message.answer("🔒 Unauthorized. Use /start to login.")
             return
@@ -1205,7 +1205,7 @@ All times are in IST (Indian Standard Time, UTC+5:30)
             await message.answer(
                 f"❌ <b>Task Cancelled</b>\n"
                 f"Active scheduling task stopped.\n"
-                f"🕒 Cancelled at: {current_time}"
+                f"🇮🇳 Cancelled at: {current_time}"
             )
             logger.info(f"Task cancelled by user {user_id}")
         else:
@@ -1241,7 +1241,7 @@ All times are in IST (Indian Standard Time, UTC+5:30)
                 await playwright.stop()
 
     async def post_tweet(self, tweet: str, account: Dict, retry_count: int = 3) -> Tuple[str, Optional[str]]:
-        """Enhanced tweet posting with retry, stealth features, and URL extraction"""
+        """Enhanced tweet posting with retry, stealth features, and URL extraction - FIXED VERSION"""
         for attempt in range(retry_count):
             try:
                 async with self.get_browser() as browser:
@@ -1249,10 +1249,13 @@ All times are in IST (Indian Standard Time, UTC+5:30)
                     context = await browser.new_context(
                         storage_state=account,
                         viewport={'width': 1280, 'height': 720},
-                        user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                        user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
                     )
                     
                     page = await context.new_page()
+                    
+                    # Set longer timeout for navigation
+                    page.set_default_navigation_timeout(120000)  # 2 minutes
                     
                     # Stealth mode
                     await page.add_init_script("""
@@ -1270,63 +1273,84 @@ All times are in IST (Indian Standard Time, UTC+5:30)
                         };
                     """)
                     
-                    # Navigate to Twitter compose
-                    await page.goto("https://x.com/compose/tweet", wait_until="networkidle", timeout=90000)
+                    # Navigate to Twitter compose - FIXED: Use domcontentloaded instead of networkidle
+                    logger.info(f"Attempting to navigate to compose page (attempt {attempt + 1})")
+                    await page.goto("https://x.com/compose/tweet", wait_until="domcontentloaded", timeout=120000)
+                    
+                    # Wait for page to be fully interactive
+                    await page.wait_for_load_state("networkidle", timeout=30000)
                     
                     # Random delay to seem human
                     await asyncio.sleep(random.uniform(2, 4))
                     
-                    # Find and fill tweet textarea
+                    # Find and fill tweet textarea - Enhanced selectors
                     selectors = [
                         "[aria-label='Post text']",
                         "[data-testid='tweetTextarea_0']",
-                        "[contenteditable='true'][aria-label='Post text']"
+                        "[contenteditable='true'][aria-label='Post text']",
+                        "[role='textbox'][aria-label*='Post']",
+                        "[data-testid='tweetTextarea_0_label']"
                     ]
                     
                     textarea_found = False
                     for selector in selectors:
                         try:
-                            await page.wait_for_selector(selector, timeout=10000)
+                            logger.info(f"Trying selector: {selector}")
+                            await page.wait_for_selector(selector, timeout=15000)
                             await page.fill(selector, tweet)
                             textarea_found = True
+                            logger.info(f"Successfully filled textarea with selector: {selector}")
                             break
-                        except:
+                        except Exception as e:
+                            logger.warning(f"Selector {selector} failed: {e}")
                             continue
                     
                     if not textarea_found:
+                        # Take screenshot for debugging
+                        if not BROWSER_HEADLESS:
+                            await page.screenshot(path=f"debug_no_textarea_{attempt}.png")
                         raise Exception("Could not find tweet textarea")
                     
                     # Human-like typing delay
                     await asyncio.sleep(random.uniform(1, 3))
                     
-                    # Find and click post button
+                    # Find and click post button - Enhanced selectors
                     post_selectors = [
                         "[data-testid='tweetButtonInline']",
                         "[data-testid='tweetButton']",
-                        "[role='button'][aria-label*='Post']"
+                        "[role='button'][aria-label*='Post']",
+                        "[data-testid='tweetButton'][role='button']",
+                        "button[data-testid='tweetButton']"
                     ]
                     
                     button_found = False
                     for selector in post_selectors:
                         try:
+                            logger.info(f"Trying post button selector: {selector}")
+                            await page.wait_for_selector(selector, timeout=10000)
                             await page.click(selector, timeout=5000)
                             button_found = True
+                            logger.info(f"Successfully clicked post button with selector: {selector}")
                             break
-                        except:
+                        except Exception as e:
+                            logger.warning(f"Post button selector {selector} failed: {e}")
                             continue
                     
                     if not button_found:
+                        # Take screenshot for debugging
+                        if not BROWSER_HEADLESS:
+                            await page.screenshot(path=f"debug_no_button_{attempt}.png")
                         raise Exception("Could not find post button")
                     
                     # Wait for post to complete and try to get the URL
                     await asyncio.sleep(random.uniform(3, 5))
                     
-                    # Try to extract tweet URL
+                    # Try to extract tweet URL - Enhanced extraction
                     tweet_url = None
                     try:
                         # Wait for URL change or specific elements that indicate successful posting
                         await page.wait_for_function(
-                            "window.location.href.includes('/status/') || document.querySelector('[data-testid=\"toast\"]')",
+                            "window.location.href.includes('/status/') || document.querySelector('[data-testid=\"toast\"]') || document.querySelector('[data-testid=\"confirmationSheetDialog\"]')",
                             timeout=TWEET_LINK_WAIT_TIME * 1000
                         )
                         
@@ -1335,7 +1359,7 @@ All times are in IST (Indian Standard Time, UTC+5:30)
                         
                         # If URL extraction from current page fails, try alternative methods
                         if not tweet_url:
-                            # Look for any links containing status
+                            # Method 1: Look for any links containing status
                             try:
                                 status_links = await page.query_selector_all('a[href*="/status/"]')
                                 if status_links:
@@ -1345,9 +1369,23 @@ All times are in IST (Indian Standard Time, UTC+5:30)
                             except:
                                 pass
                         
-                        # Final attempt: check if we're on a status page
+                        # Method 2: Check if we're on a status page
                         if not tweet_url and '/status/' in current_url:
                             tweet_url = current_url
+                        
+                        # Method 3: Try to navigate to profile and get latest tweet
+                        if not tweet_url:
+                            try:
+                                await page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=30000)
+                                await asyncio.sleep(2)
+                                # Look for the first tweet link
+                                first_tweet = await page.query_selector('article a[href*="/status/"]')
+                                if first_tweet:
+                                    href = await first_tweet.get_attribute('href')
+                                    if href:
+                                        tweet_url = f"https://x.com{href}" if not href.startswith('http') else href
+                            except:
+                                pass
                             
                     except Exception as url_error:
                         logger.warning(f"Could not extract tweet URL: {url_error}")
@@ -1360,7 +1398,7 @@ All times are in IST (Indian Standard Time, UTC+5:30)
                 logger.error(f"Tweet posting attempt {attempt + 1} failed: {e}")
                 if attempt == retry_count - 1:
                     return (f"❌ Failed after {retry_count} attempts: {str(e)[:100]}", None)
-                await asyncio.sleep(random.uniform(5, 10))
+                await asyncio.sleep(random.uniform(10, 20))  # Longer wait between retries
         
         return ("❌ All attempts failed", None)
 
@@ -1377,7 +1415,7 @@ All times are in IST (Indian Standard Time, UTC+5:30)
                 await asyncio.sleep(delay)
             
             start_time = ist_now().strftime('%I:%M %p IST')
-            await message.answer(f"🚀 <b>Starting automated posting...</b>\n🕒 Started at: {start_time}\n🔗 Tweet links will be sent after each post")
+            await message.answer(f"🚀 <b>Starting automated posting...</b>\n🇮🇳 Started at: {start_time}\n🔗 Tweet links will be sent after each post")
             
             results = []
             tweet_links = []
@@ -1424,7 +1462,7 @@ All times are in IST (Indian Standard Time, UTC+5:30)
                     if i % 5 == 0 or i == total_tweets:
                         progress = int((i / total_tweets) * 100)
                         current_time = ist_now().strftime('%I:%M %p IST')
-                        await message.answer(f"📊 Progress: {i}/{total_tweets} ({progress}%)\n🕒 Time: {current_time}")
+                        await message.answer(f"📊 Progress: {i}/{total_tweets} ({progress}%)\n🇮🇳 Time: {current_time}")
                         
                 except asyncio.CancelledError:
                     raise
@@ -1442,7 +1480,7 @@ All times are in IST (Indian Standard Time, UTC+5:30)
                       f"✅ Success: {success_count}\n"
                       f"❌ Failed: {failure_count}\n"
                       f"🔗 Links extracted: {len(tweet_links)}\n"
-                      f"🕒 Completed at: {end_time}\n\n")
+                      f"🇮🇳 Completed at: {end_time}\n\n")
             
             # Send summary of all tweet links
             if tweet_links:
@@ -1464,12 +1502,12 @@ All times are in IST (Indian Standard Time, UTC+5:30)
             
         except asyncio.CancelledError:
             cancel_time = ist_now().strftime('%I:%M %p IST')
-            await message.answer(f"❌ <b>Task Cancelled</b>\n🕒 Cancelled at: {cancel_time}")
+            await message.answer(f"❌ <b>Task Cancelled</b>\n🇮🇳 Cancelled at: {cancel_time}")
             logger.info(f"Scheduling cancelled for user {user_id}")
         except Exception as e:
             logger.error(f"Error in run_scheduler: {e}")
             error_time = ist_now().strftime('%I:%M %p IST')
-            await message.answer(f"❌ <b>Scheduling Error:</b>\n{str(e)[:200]}\n🕒 Error at: {error_time}")
+            await message.answer(f"❌ <b>Scheduling Error:</b>\n{str(e)[:200]}\n🇮🇳 Error at: {error_time}")
         finally:
             # Clean up task reference
             if user_id in self.active_tasks:
@@ -1505,12 +1543,13 @@ def main():
         if YOUR_TELEGRAM_USER_ID == 123456789:
             print("⚠️  Warning: Please set YOUR_TELEGRAM_USER_ID to your actual Telegram user ID for admin features")
         
-        print(f"🕒 Starting bot with IST timezone...")
+        print(f"🇮🇳 Starting bot with IST timezone...")
         print(f"🔗 Tweet link extraction: ENABLED")
         print(f"🆕 Individual account management: ENABLED")
         print(f"🔧 Admin features: ENABLED")
         print(f"👨‍💼 Admin user ID: {YOUR_TELEGRAM_USER_ID}")
-        print(f"🕒 Current IST time: {ist_now().strftime('%d %B %Y, %I:%M %p IST')}")
+        print(f"🇮🇳 Current IST time: {ist_now().strftime('%d %B %Y, %I:%M %p IST')}")
+        print(f"🔍 Browser headless mode: {BROWSER_HEADLESS}")
         
         # Create and start bot
         bot = TwitterAutomationBot()
