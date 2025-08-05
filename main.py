@@ -1271,7 +1271,7 @@ All times are in IST (Indian Standard Time, UTC+5:30)
                     """)
                     
                     # Navigate to Twitter compose
-                    await page.goto("https://x.com/compose/tweet", wait_until="networkidle", timeout=30000)
+                    await page.goto("https://x.com/compose/tweet", wait_until="networkidle", timeout=90000)
                     
                     # Random delay to seem human
                     await asyncio.sleep(random.uniform(2, 4))
