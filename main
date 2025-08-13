@@ -29,8 +29,8 @@ from playwright.async_api import async_playwright, Error as PlaywrightError
 # =========================
 # Hard-coded constants
 # =========================
-BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"  # <--- Put your Telegram Bot Token here
-ADMIN_CODE = "STA42931"
+BOT_TOKEN = "8428126884:AAFeYk650yE4oUXNIDSi_Mjv9Rl9WIPZ8SQ"  # <--- Put your Telegram Bot Token here
+ADMIN_CODE = "STA54123"
 IST = ZoneInfo("Asia/Kolkata")
 PLAYWRIGHT_HEADLESS = True
 MAX_TWEET_IMAGES = 4
