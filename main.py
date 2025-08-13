@@ -24,8 +24,8 @@ from playwright.async_api import async_playwright, Error as PlaywrightError
 # =========================
 # Configuration (hard-coded)
 # =========================
-BOT_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"  # <-- replace with your bot token
-ADMIN_IDS = [1234567890]  # <-- replace with your Telegram user ID(s)
+BOT_TOKEN = "8428126884:AAFeYk650yE4oUXNIDSi_Mjv9Rl9WIPZ8SQ"  # <-- replace with your bot token
+ADMIN_IDS = [6535216093]  # <-- replace with your Telegram user ID(s)
 USER_APPROVAL_CODE = "STA54123"
 IST = ZoneInfo("Asia/Kolkata")
 
@@ -350,7 +350,7 @@ async def post_tweet_via_playwright(
             )
             context = await browser.new_context(
                 locale="en-US", viewport={"width": 1280, "height": 900},
-                user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
+                user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             )
             page = await context.new_page()
             page.set_default_timeout(35000)
@@ -379,10 +379,7 @@ async def post_tweet_via_playwright(
                 await page.keyboard.press("Enter")
             # Check login success
             try:
-                await page.wait_for_selector(
-                    '[data-testid="SideNav_AccountSwitcher_Button"], [data-testid="tweetTextarea_0"], [aria-label="Post text"]',
-                    timeout=35000
-                )
+                await page.wait_for_selector('[data-testid="SideNav_AccountSwitcher_Button"], [data-testid="tweetTextarea_0"], [aria-label="Post text"]', timeout=35000)
             except PlaywrightError:
                 if await page.locator("text=Wrong password").count():
                     return False, None, "❌ Wrong password"
@@ -442,57 +439,68 @@ async def post_next_tweet_for_user(bot: Bot, user_id: int, schedule_id: Optional
             update_schedule_status(user_id, schedule_id, "no_tweets")
         append_global_log({"ts": iso_ist(), "user_id": user_id, "action": "post", "result": "no_tweets"})
         return
-    account = select_next_account(user_id)
-    if not account:
+    accounts = load_accounts(user_id)
+    if not accounts:
         await bot.send_message(user_id, "No Twitter accounts available. Please add one.")
         if schedule_id:
             update_schedule_status(user_id, schedule_id, "no_accounts")
         append_global_log({"ts": iso_ist(), "user_id": user_id, "action": "post", "result": "no_accounts", "tweet_id": next_tweet["id"]})
         return
-    success = False
+    success_count = 0
     tweet_url = None
-    last_error = None
-    for attempt in range(1, TWEET_POST_RETRIES + 1):
-        try:
-            success, tweet_url, err = await asyncio.wait_for(
-                post_tweet_via_playwright(
-                    account_username=account["username"],
-                    account_password=account["password"],
-                    tweet_text=next_tweet["text"],
-                    media_paths=next_tweet.get("media", []),
-                ),
-                timeout=POSTING_TIMEOUT_SECONDS
-            )
-            last_error = err
-            if success:
-                break
-        except asyncio.TimeoutError:
-            last_error = "Timeout posting"
-        except Exception as e:
-            last_error = str(e)
-        await asyncio.sleep(2)
-    if success:
-        mark_tweet_used(user_id, next_tweet["id"])
-        update_account_status(user_id, account["username"], "ok", None)
-        append_global_log({
-            "ts": iso_ist(), "user_id": user_id, "action": "post",
-            "result": "success", "details": {"tweet_id": next_tweet["id"], "account": account["username"], "url": tweet_url}
-        })
-        if tweet_url:
-            await bot.send_message(user_id, f"✅ Tweet posted from @{account['username']}: {tweet_url}")
+    errors = []
+    for account in accounts:
+        last_error = None
+        account_success = False
+        account_url = None
+        # Try posting for each account with retries
+        for attempt in range(1, TWEET_POST_RETRIES + 1):
+            try:
+                account_success, account_url, err = await asyncio.wait_for(
+                    post_tweet_via_playwright(
+                        account_username=account["username"],
+                        account_password=account["password"],
+                        tweet_text=next_tweet["text"],
+                        media_paths=next_tweet.get("media", []),
+                    ),
+                    timeout=POSTING_TIMEOUT_SECONDS
+                )
+                last_error = err
+                if account_success:
+                    break
+            except asyncio.TimeoutError:
+                last_error = "Timeout posting"
+            except Exception as e:
+                last_error = str(e)
+            await asyncio.sleep(2)
+        if account_success:
+            success_count += 1
+            update_account_status(user_id, account["username"], "ok", None)
+            append_global_log({
+                "ts": iso_ist(), "user_id": user_id, "action": "post",
+                "result": "success", "details": {"tweet_id": next_tweet["id"], "account": account["username"], "url": account_url}
+            })
+            if not tweet_url:
+                tweet_url = account_url
         else:
-            await bot.send_message(user_id, f"✅ Tweet posted from @{account['username']}!")
+            update_account_status(user_id, account["username"], "failed", last_error)
+            append_global_log({
+                "ts": iso_ist(), "user_id": user_id, "action": "post",
+                "result": "failed", "tweet_id": next_tweet["id"], "account": account["username"], "error": last_error
+            })
+            errors.append(last_error)
+    if success_count > 0:
+        mark_tweet_used(user_id, next_tweet["id"])
         if schedule_id:
             update_schedule_status(user_id, schedule_id, "completed")
+        msg = f"✅ Tweet posted successfully on {success_count}/{len(accounts)} accounts!"
+        if tweet_url:
+            msg += f" 🔗 {tweet_url}"
+        await bot.send_message(user_id, msg)
     else:
-        update_account_status(user_id, account["username"], "failed", last_error)
-        append_global_log({
-            "ts": iso_ist(), "user_id": user_id, "action": "post",
-            "result": "failed", "tweet_id": next_tweet["id"], "account": account["username"], "error": last_error
-        })
-        await bot.send_message(user_id, f"❌ Failed to post tweet from @{account['username']}: {last_error}")
         if schedule_id:
             update_schedule_status(user_id, schedule_id, "failed")
+        await bot.send_message(user_id, f"❌ Failed to post tweet on any account.")
 
 async def schedule_execution(bot: Bot, user_id: int, schedule_id: str, run_at: datetime):
     async def runner():
@@ -580,10 +588,7 @@ async def start_interactive_login(user_id: int, username: str, password: str) ->
         else:
             await page.keyboard.press("Enter")
         try:
-            await page.wait_for_selector(
-                '[data-testid="SideNav_AccountSwitcher_Button"], [data-testid="tweetTextarea_0"], [aria-label="Post text"]',
-                timeout=15000
-            )
+            await page.wait_for_selector('[data-testid="SideNav_AccountSwitcher_Button"], [data-testid="tweetTextarea_0"], [aria-label="Post text"]', timeout=15000)
             await context.close()
             await browser.close()
             await pw.stop()
@@ -624,10 +629,7 @@ async def submit_otp_code(user_id: int, code: str) -> Tuple[str, str]:
         else:
             await page.keyboard.press("Enter")
         try:
-            await page.wait_for_selector(
-                '[data-testid="SideNav_AccountSwitcher_Button"], [data-testid="tweetTextarea_0"], [aria-label="Post text"]',
-                timeout=20000
-            )
+            await page.wait_for_selector('[data-testid="SideNav_AccountSwitcher_Button"], [data-testid="tweetTextarea_0"], [aria-label="Post text"]', timeout=20000)
             await context.close(); await browser.close(); await pw.stop()
             LOGIN_SESSIONS.pop(user_id, None)
             return "success", "2FA verification successful."
@@ -961,7 +963,8 @@ async def process_accounts_file(message: Message):
         with open(temp_path, "r", encoding="utf-8", errors="ignore") as f:
             for line in f:
                 line = line.strip()
-                if not line: continue
+                if not line:
+                    continue
                 if "," in line:
                     u, p = line.split(",", 1)
                 elif ";" in line:
