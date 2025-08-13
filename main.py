@@ -3,7 +3,6 @@ import json
 import os
 import re
 import sys
-import traceback
 import uuid
 import zipfile
 import csv
@@ -16,30 +15,22 @@ from zoneinfo import ZoneInfo
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command
-from aiogram.types import Message, Update
+from aiogram.types import Message
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 
-# Playwright
 from playwright.async_api import async_playwright, Error as PlaywrightError
 
 # =========================
-# Hard-coded constants
+# Configuration (hard-coded)
 # =========================
-# Bot token (read from env; fail fast if missing)
-BOT_TOKEN = "8428126884:AAFeYk650yE4oUXNIDSi_Mjv9Rl9WIPZ8SQ"
-# Admins by Telegram user ID (no code needed for admin commands)
-ADMIN_IDS = [6535216093]  # <-- replace with your Telegram user ID(s)
-
-# New user approval code
+BOT_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"  # <-- replace with your bot token
+ADMIN_IDS = [1234567890]  # <-- replace with your Telegram user ID(s)
 USER_APPROVAL_CODE = "STA54123"
-
-# Timezone
 IST = ZoneInfo("Asia/Kolkata")
 
-# Playwright and posting config
 PLAYWRIGHT_HEADLESS = True
-MAX_MEDIA = 4  # X allows up to 4 images or 1 video (rule enforced below)
+MAX_MEDIA = 4  # X allows up to 4 images or 1 video
 TWEET_POST_RETRIES = 3
 POSTING_TIMEOUT_SECONDS = 240
 BROWSER_INSTALL_TIMEOUT = 600
@@ -49,15 +40,11 @@ BASE_DIR = Path(__file__).parent.resolve()
 DATA_DIR = BASE_DIR / "data"
 GLOBAL_LOGS = DATA_DIR / "logs.json"
 USERS_FILE = DATA_DIR / "users.json"
-ADMINS_FILE = DATA_DIR / "admins.json"  # kept for visibility
+ADMINS_FILE = DATA_DIR / "admins.json"
 
-# Allowed media extensions
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
 VIDEO_EXTS = {".mp4", ".mov", ".m4v", ".webm"}
 
-# =========================
-# Utilities
-# =========================
 def ensure_dir(p: Path):
     p.mkdir(parents=True, exist_ok=True)
 
@@ -104,16 +91,16 @@ def append_global_log(entry: Dict[str, Any]):
     save_json(GLOBAL_LOGS, logs)
 
 def is_admin(user_id: int) -> bool:
-    return user_id in set(ADMIN_IDS)
+    return user_id in ADMIN_IDS
 
-# =========================
-# Users registry and approval
-# =========================
 def _find_user(users: List[Dict[str, Any]], user_id: int) -> Optional[Dict[str, Any]]:
     for u in users:
         if u.get("user_id") == user_id:
             return u
     return None
+
+def list_users() -> List[Dict[str, Any]]:
+    return load_json(USERS_FILE, [])
 
 def register_or_touch_user(user_id: int, first_name: str, username: Optional[str]) -> Dict[str, Any]:
     ensure_dir(DATA_DIR)
@@ -150,17 +137,37 @@ def is_user_approved(user_id: int) -> bool:
     u = _find_user(users, user_id)
     return bool(u and u.get("approved"))
 
-def list_users() -> List[Dict[str, Any]]:
-    return load_json(USERS_FILE, [])
+# Blocking users
+def is_user_blocked(user_id: int) -> bool:
+    users = load_json(USERS_FILE, [])
+    u = _find_user(users, user_id)
+    return bool(u and u.get("blocked"))
 
-# =========================
-# Per-user storage helpers
-# =========================
+def set_user_blocked(user_id: int):
+    users = load_json(USERS_FILE, [])
+    u = _find_user(users, user_id)
+    if not u:
+        return False
+    u["blocked"] = True
+    u["approved"] = False
+    save_json(USERS_FILE, users)
+    return True
+
+def set_user_unblocked(user_id: int):
+    users = load_json(USERS_FILE, [])
+    u = _find_user(users, user_id)
+    if not u:
+        return False
+    u["blocked"] = False
+    u["approved"] = True
+    save_json(USERS_FILE, users)
+    return True
+
+# Per-user storage
 def load_accounts(user_id: int) -> List[Dict[str, Any]]:
     return load_json(user_file(user_id, "accounts.json"), [])
 
 def save_accounts(user_id: int, accounts: List[Dict[str, Any]]):
-    # Reindex and persist
     for idx, acc in enumerate(accounts, start=1):
         acc["id"] = idx
     save_json(user_file(user_id, "accounts.json"), accounts)
@@ -173,7 +180,7 @@ def add_account(user_id: int, username: str, password: str) -> Dict[str, Any]:
         "password": password.strip(),
         "added_at": iso_ist(),
         "last_used_at": None,
-        "last_status": "unknown",  # unknown|ok|failed
+        "last_status": "unknown",
         "last_error": None,
     }
     accounts.append(entry)
@@ -206,7 +213,7 @@ def add_tweet(user_id: int, text: str, media_paths: List[str]) -> Dict[str, Any]
     entry = {
         "id": len(tweets) + 1,
         "text": text,
-        "media": media_paths,  # images/videos, up to 4 or 1 video
+        "media": media_paths,
         "added_at": iso_ist(),
     }
     tweets.append(entry)
@@ -265,14 +272,13 @@ def update_schedule_status(user_id: int, schedule_id: str, status: str):
             break
     save_schedules(user_id, schedules)
 
-# =========================
-# Time parsing (IST)
-# Example: "3 August 2025 @12:31AM"
-# =========================
+# Parse IST datetime, format: "3 August 2025 @12:31AM"
 MONTHS = {
-    "january": 1, "jan": 1, "february": 2, "feb": 2, "march": 3, "mar": 3, "april": 4, "apr": 4,
-    "may": 5, "june": 6, "jun": 6, "july": 7, "jul": 7, "august": 8, "aug": 8, "september": 9, "sep": 9, "sept": 9,
-    "october": 10, "oct": 10, "november": 11, "nov": 11, "december": 12, "dec": 12,
+    "january": 1, "jan": 1, "february": 2, "feb": 2, "march": 3, "mar": 3,
+    "april": 4, "apr": 4, "may": 5, "june": 6, "jun": 6,
+    "july": 7, "jul": 7, "august": 8, "aug": 8,
+    "september": 9, "sep": 9, "sept": 9, "october": 10, "oct": 10,
+    "november": 11, "nov": 11, "december": 12, "dec": 12,
 }
 DT_REGEX = re.compile(r"^\s*(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})\s*@\s*(\d{1,2}):(\d{2})\s*([AaPp][Mm])\s*$")
 
@@ -298,9 +304,6 @@ def parse_ist_datetime(text: str) -> Optional[datetime]:
     except ValueError:
         return None
 
-# =========================
-# Playwright helpers
-# =========================
 async def ensure_playwright_installed():
     try:
         async with async_playwright() as p:
@@ -309,20 +312,15 @@ async def ensure_playwright_installed():
     except Exception:
         pass
     try:
-        print("Attempting to install Playwright Chromium...", flush=True)
+        print("Installing Playwright Chromium...", flush=True)
         subprocess.run(
             ["playwright", "install", "chromium", "--with-deps"],
-            check=False,
-            timeout=BROWSER_INSTALL_TIMEOUT,
+            check=False, timeout=BROWSER_INSTALL_TIMEOUT
         )
-        print("Playwright Chromium install attempted.", flush=True)
     except Exception as e:
-        print(f"Playwright install error (continuing anyway): {e}", file=sys.stderr)
+        print(f"Error installing Playwright: {e}", file=sys.stderr)
 
 def split_media_paths(paths: List[str]) -> List[str]:
-    """
-    Enforce X rules: either up to 4 images, OR 1 video (safest).
-    """
     imgs, vids = [], []
     for p in paths:
         suffix = Path(p).suffix.lower()
@@ -331,7 +329,7 @@ def split_media_paths(paths: List[str]) -> List[str]:
         elif suffix in VIDEO_EXTS:
             vids.append(p)
     if vids:
-        return [vids[0]]  # prefer 1st video only
+        return [vids[0]]
     return imgs[:MAX_MEDIA]
 
 async def post_tweet_via_playwright(
@@ -341,8 +339,7 @@ async def post_tweet_via_playwright(
     media_paths: List[str],
 ) -> Tuple[bool, Optional[str], Optional[str]]:
     """
-    Login to X (Twitter) and post a tweet. Returns (success, tweet_url, error_message).
-    Headless by default. No API, no cookies.
+    Login to X and post a tweet. Returns (success, tweet_url, error_message).
     """
     try:
         await ensure_playwright_installed()
@@ -352,163 +349,106 @@ async def post_tweet_via_playwright(
                 args=["--no-sandbox", "--disable-dev-shm-usage"]
             )
             context = await browser.new_context(
-                locale="en-US",
-                viewport={"width": 1280, "height": 900},
-                user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-                           "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                locale="en-US", viewport={"width": 1280, "height": 900},
+                user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
             )
             page = await context.new_page()
             page.set_default_timeout(35000)
-
-            # Login flow
+            # Login
             await page.goto("https://x.com/login", wait_until="domcontentloaded")
             await page.wait_for_selector('input[name="text"]', timeout=20000)
             await page.fill('input[name="text"]', account_username)
             next_btn = page.locator('div[role="button"]:has-text("Next")')
-            if await next_btn.count() > 0:
+            if await next_btn.count():
                 await next_btn.first.click()
             else:
                 await page.keyboard.press("Enter")
-
-            # Sometimes they request username again
-            if await page.locator('input[name="text"]').count() > 0:
+            if await page.locator('input[name="text"]').count():
                 await page.fill('input[name="text"]', account_username)
                 next_btn2 = page.locator('div[role="button"]:has-text("Next")')
-                if await next_btn2.count() > 0:
+                if await next_btn2.count():
                     await next_btn2.first.click()
                 else:
                     await page.keyboard.press("Enter")
-
             await page.wait_for_selector('input[name="password"]', timeout=25000)
             await page.fill('input[name="password"]', account_password)
             login_btn = page.locator('div[role="button"]:has-text("Log in")')
-            if await login_btn.count() > 0:
+            if await login_btn.count():
                 await login_btn.first.click()
             else:
                 await page.keyboard.press("Enter")
-
-            # Check if logged in
+            # Check login success
             try:
                 await page.wait_for_selector(
                     '[data-testid="SideNav_AccountSwitcher_Button"], [data-testid="tweetTextarea_0"], [aria-label="Post text"]',
                     timeout=35000
                 )
             except PlaywrightError:
-                if await page.locator("text=Enter your phone number").count() > 0 or await page.locator("text=Verify").count() > 0:
-                    await context.close()
-                    await browser.close()
-                    return False, None, "Login requires verification (2FA/phone)."
-                if await page.locator("text=Wrong password").count() > 0:
-                    await context.close()
-                    await browser.close()
-                    return False, None, "Wrong password."
-                await context.close()
-                await browser.close()
-                return False, None, "Login failed."
-
+                if await page.locator("text=Wrong password").count():
+                    return False, None, "❌ Wrong password"
+                if await page.locator("text=Enter your phone number").count() or await page.locator("text=Verify").count():
+                    return False, None, "❌ Verification required (2FA)"
+                return False, None, "❌ Login failed"
             # Compose tweet
-            composer = page.locator('[data-testid="tweetTextarea_0"], div[aria-label="Post text"]')
-            if await composer.count() == 0:
+            composer = page.locator('[data-testid="tweetTextarea_0"], [aria-label="Post text"]')
+            if not await composer.count():
                 compose_btn = page.locator('[data-testid="SideNav_NewTweet_Button"]')
-                if await compose_btn.count() > 0:
+                if await compose_btn.count():
                     await compose_btn.first.click()
-                    composer = page.locator('[data-testid="tweetTextarea_0"], div[aria-label="Post text"]')
-
-            if await composer.count() == 0:
-                await context.close()
-                await browser.close()
-                return False, None, "Composer not found."
-
+                    composer = page.locator('[data-testid="tweetTextarea_0"], [aria-label="Post text"]')
+            if not await composer.count():
+                return False, None, "❌ Tweet composer not found"
             await composer.first.click()
             if tweet_text:
                 await composer.first.type(tweet_text)
-
-            # Upload media if any
+            # Upload media
             media_paths = split_media_paths([str(Path(p)) for p in media_paths])
-            if media_paths:
-                file_input = page.locator('input[type="file"]')
-                target = file_input
-                if await target.count() == 0:
-                    target = page.locator('input[type="file"][accept]')
+            for mp in media_paths:
+                input_file = page.locator('input[type="file"]')
                 try:
-                    await target.first.set_input_files(media_paths)
-                except Exception:
-                    try:
-                        alt = page.locator('[data-testid="toolBar"] input[type="file"]')
-                        await alt.first.set_input_files(media_paths)
-                    except Exception as e:
-                        await context.close()
-                        await browser.close()
-                        return False, None, f"Media upload failed: {e}"
-
-            # Click Post button
-            post_btn = page.locator('[data-testid="tweetButtonInline"], [data-testid="tweetButton"]')
-            if await post_btn.count() == 0:
-                await context.close()
-                await browser.close()
-                return False, None, "Post button not found."
-            await post_btn.first.click()
-            await page.wait_for_timeout(4500)
-
-            # Try to capture tweet URL by going to profile
-            tweet_url = None
-            try:
-                profile_url = f"https://x.com/{account_username}"
-                await page.goto(profile_url, wait_until="domcontentloaded")
-                link = page.locator('article a[href*="/status/"]')
-                await link.first.wait_for(timeout=20000)
-                href = await link.first.get_attribute("href")
-                if href:
-                    tweet_url = href if href.startswith("http") else ("https://x.com" + href)
-            except Exception:
-                try:
-                    await page.goto("https://x.com/home", wait_until="domcontentloaded")
-                    link = page.locator('article a[href*="/status/"]')
-                    await link.first.wait_for(timeout=20000)
-                    href = await link.first.get_attribute("href")
-                    if href:
-                        tweet_url = href if href.startswith("http") else ("https://x.com" + href)
+                    await input_file.set_input_files(mp)
                 except Exception:
                     pass
-
+            # Submit
+            post_btn = page.locator('div[role="button"]:has-text("Tweet")')
+            if await post_btn.count():
+                await post_btn.first.click()
+            else:
+                await page.keyboard.press("Meta+Enter")
+            # Wait for tweet to post
+            await asyncio.sleep(3)
+            # Try to get tweet URL
+            url = page.url
+            tweet_url = None
+            if "x.com/i/web/status" in url or "/status/" in url:
+                tweet_url = url
             await context.close()
             await browser.close()
-            if tweet_url:
-                return True, tweet_url, None
-            return True, None, "Tweet posted but URL not found."
-    except PlaywrightError as e:
-        return False, None, f"Playwright error: {e}"
+            return True, tweet_url, None
     except Exception as e:
-        return False, None, f"Unexpected error: {e}"
-
-# =========================
-# Scheduler
-# =========================
-SCHEDULE_TASKS: Dict[str, asyncio.Task] = {}  # schedule_id -> task
+        return False, None, f"❌ Error posting: {e}"
 
 async def post_next_tweet_for_user(bot: Bot, user_id: int, schedule_id: Optional[str] = None):
     tweets = load_tweets(user_id)
     used = set(load_used_tweets(user_id))
     next_tweet = None
     for t in tweets:
-        if t.get("id") not in used:
+        if t['id'] not in used:
             next_tweet = t
             break
     if not next_tweet:
-        await bot.send_message(user_id, "No pending tweets left to post.")
+        await bot.send_message(user_id, "No pending tweets left. 🎉")
         if schedule_id:
             update_schedule_status(user_id, schedule_id, "no_tweets")
         append_global_log({"ts": iso_ist(), "user_id": user_id, "action": "post", "result": "no_tweets"})
         return
-
     account = select_next_account(user_id)
     if not account:
-        await bot.send_message(user_id, "No Twitter accounts available. Use addaccount/addaccounts or uploadkeys.")
+        await bot.send_message(user_id, "No Twitter accounts available. Please add one.")
         if schedule_id:
             update_schedule_status(user_id, schedule_id, "no_accounts")
         append_global_log({"ts": iso_ist(), "user_id": user_id, "action": "post", "result": "no_accounts", "tweet_id": next_tweet["id"]})
         return
-
     success = False
     tweet_url = None
     last_error = None
@@ -519,7 +459,7 @@ async def post_next_tweet_for_user(bot: Bot, user_id: int, schedule_id: Optional
                     account_username=account["username"],
                     account_password=account["password"],
                     tweet_text=next_tweet["text"],
-                    media_paths=[str(Path(p)) for p in next_tweet.get("media", [])],
+                    media_paths=next_tweet.get("media", []),
                 ),
                 timeout=POSTING_TIMEOUT_SECONDS
             )
@@ -527,22 +467,21 @@ async def post_next_tweet_for_user(bot: Bot, user_id: int, schedule_id: Optional
             if success:
                 break
         except asyncio.TimeoutError:
-            last_error = "Posting timed out."
+            last_error = "Timeout posting"
         except Exception as e:
-            last_error = f"Error: {e}"
-        await asyncio.sleep(3)
-
+            last_error = str(e)
+        await asyncio.sleep(2)
     if success:
-        mark_tweet_used(user_id, int(next_tweet["id"]))
+        mark_tweet_used(user_id, next_tweet["id"])
         update_account_status(user_id, account["username"], "ok", None)
         append_global_log({
             "ts": iso_ist(), "user_id": user_id, "action": "post",
             "result": "success", "details": {"tweet_id": next_tweet["id"], "account": account["username"], "url": tweet_url}
         })
         if tweet_url:
-            await bot.send_message(user_id, f"Tweet posted from @{account['username']}: {tweet_url}")
+            await bot.send_message(user_id, f"✅ Tweet posted from @{account['username']}: {tweet_url}")
         else:
-            await bot.send_message(user_id, f"Tweet posted from @{account['username']}, but link could not be detected.")
+            await bot.send_message(user_id, f"✅ Tweet posted from @{account['username']}!")
         if schedule_id:
             update_schedule_status(user_id, schedule_id, "completed")
     else:
@@ -551,7 +490,7 @@ async def post_next_tweet_for_user(bot: Bot, user_id: int, schedule_id: Optional
             "ts": iso_ist(), "user_id": user_id, "action": "post",
             "result": "failed", "tweet_id": next_tweet["id"], "account": account["username"], "error": last_error
         })
-        await bot.send_message(user_id, f"Failed to post tweet from @{account['username']}. Error: {last_error or 'Unknown error'}")
+        await bot.send_message(user_id, f"❌ Failed to post tweet from @{account['username']}: {last_error}")
         if schedule_id:
             update_schedule_status(user_id, schedule_id, "failed")
 
@@ -563,15 +502,14 @@ async def schedule_execution(bot: Bot, user_id: int, schedule_id: str, run_at: d
                 await asyncio.sleep(delay)
             await post_next_tweet_for_user(bot, user_id, schedule_id)
         finally:
-            if schedule_id in SCHEDULE_TASKS:
-                SCHEDULE_TASKS.pop(schedule_id, None)
+            SCHEDULE_TASKS.pop(schedule_id, None)
     if schedule_id in SCHEDULE_TASKS and not SCHEDULE_TASKS[schedule_id].done():
         SCHEDULE_TASKS[schedule_id].cancel()
     SCHEDULE_TASKS[schedule_id] = asyncio.create_task(runner())
 
-# =========================
+SCHEDULE_TASKS: Dict[str, asyncio.Task] = {}
+
 # FSM States
-# =========================
 class ApprovalFlow(StatesGroup):
     waiting_code = State()
 
@@ -583,151 +521,108 @@ class UploadTweetsSingleFlow(StatesGroup):
     waiting_text = State()
     waiting_media = State()
 
-# New flow for immediate login + 2FA
 class AddAccounts2FAFlow(StatesGroup):
     waiting_username = State()
     waiting_password = State()
     waiting_otp = State()
 
-# =========================
-# Bot setup
-# =========================
-bot = Bot(BOT_TOKEN, parse_mode=None)
+class BulkTweetsFlow(StatesGroup):
+    waiting_input = State()
+
+bot = Bot(token=BOT_TOKEN, parse_mode=None)
 dp = Dispatcher()
 
-# =========================
-# 2FA interactive login sessions
-# =========================
+# 2FA login sessions
 LOGIN_SESSIONS: Dict[int, Dict[str, Any]] = {}
 
 async def close_login_session(user_id: int):
     sess = LOGIN_SESSIONS.pop(user_id, None)
     if not sess:
         return
-    try:
-        if sess.get("context"):
-            await sess["context"].close()
-    except Exception:
-        pass
-    try:
-        if sess.get("browser"):
-            await sess["browser"].close()
-    except Exception:
-        pass
-    try:
-        if sess.get("pw"):
-            await sess["pw"].stop()
-    except Exception:
-        pass
+    for key in ["context", "browser", "pw"]:
+        try:
+            if sess.get(key):
+                await (sess[key].stop() if key == "pw" else sess[key].close())
+        except Exception:
+            pass
 
 async def start_interactive_login(user_id: int, username: str, password: str) -> Tuple[str, str]:
-    """
-    Try to login. Returns (status, message)
-    status in {"success","otp","error"}
-    If status == "otp": a session is stored in LOGIN_SESSIONS[user_id] waiting for submit_otp_code().
-    """
     try:
         await ensure_playwright_installed()
         pw = await async_playwright().start()
-        browser = await pw.chromium.launch(
-            headless=PLAYWRIGHT_HEADLESS,
-            args=["--no-sandbox", "--disable-dev-shm-usage"]
-        )
+        browser = await pw.chromium.launch(headless=PLAYWRIGHT_HEADLESS, args=["--no-sandbox", "--disable-dev-shm-usage"])
         context = await browser.new_context(
-            locale="en-US",
-            viewport={"width": 1280, "height": 900},
-            user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-                       "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            locale="en-US", viewport={"width": 1280, "height": 900},
+            user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
         )
         page = await context.new_page()
         page.set_default_timeout(35000)
-
         await page.goto("https://x.com/login", wait_until="domcontentloaded")
         await page.wait_for_selector('input[name="text"]', timeout=20000)
         await page.fill('input[name="text"]', username)
         next_btn = page.locator('div[role="button"]:has-text("Next")')
-        if await next_btn.count() > 0:
+        if await next_btn.count():
             await next_btn.first.click()
         else:
             await page.keyboard.press("Enter")
-
-        if await page.locator('input[name="text"]').count() > 0 and await page.locator('input[name="password"]').count() == 0:
+        if await page.locator('input[name="text"]').count() and not await page.locator('input[name="password"]').count():
             await page.fill('input[name="text"]', username)
             next_btn2 = page.locator('div[role="button"]:has-text("Next")')
-            if await next_btn2.count() > 0:
+            if await next_btn2.count():
                 await next_btn2.first.click()
             else:
                 await page.keyboard.press("Enter")
-
         await page.wait_for_selector('input[name="password"]', timeout=25000)
         await page.fill('input[name="password"]', password)
         login_btn = page.locator('div[role="button"]:has-text("Log in")')
-        if await login_btn.count() > 0:
+        if await login_btn.count():
             await login_btn.first.click()
         else:
             await page.keyboard.press("Enter")
-
         try:
             await page.wait_for_selector(
                 '[data-testid="SideNav_AccountSwitcher_Button"], [data-testid="tweetTextarea_0"], [aria-label="Post text"]',
                 timeout=15000
             )
-            await context.close(); await browser.close(); await pw.stop()
+            await context.close()
+            await browser.close()
+            await pw.stop()
             return "success", "Logged in successfully."
         except PlaywrightError:
-            if await page.locator("text=Wrong password").count() > 0:
+            if await page.locator("text=Wrong password").count():
                 await context.close(); await browser.close(); await pw.stop()
                 return "error", "Wrong password."
-            if await page.locator("text=Enter your phone number").count() > 0 or await page.locator("text=Verify your identity").count() > 0:
+            if await page.locator("text=Enter your phone number").count() or await page.locator("text=Verify your identity").count():
                 await context.close(); await browser.close(); await pw.stop()
-                return "error", "Login challenge requires phone/email verification."
-
-            body_text = ""
-            try:
-                body_text = (await page.content()).lower()
-            except Exception:
-                pass
+                return "error", "2FA required (phone/email)."
+            content = await page.content()
             otp_input = page.locator('input[autocomplete="one-time-code"], input[name="text"], input[name="verification_code"], input[name="challenge_response"]')
-            keywords = any(k in body_text for k in ["two-factor", "2fa", "verification code", "enter code", "login code"])
-            if await otp_input.count() > 0 or keywords:
-                await close_login_session(user_id)
-                LOGIN_SESSIONS[user_id] = {
-                    "pw": pw,
-                    "browser": browser,
-                    "context": context,
-                    "page": page,
-                    "username": username,
-                    "created_at": iso_ist(),
-                }
-                return "otp", "2FA required. Please send the 6-digit code."
+            if await otp_input.count() or any(kw in content.lower() for kw in ["two-factor", "2fa", "verification code", "enter code", "login code"]):
+                LOGIN_SESSIONS[user_id] = {"pw": pw, "browser": browser, "context": context, "page": page, "username": username, "created_at": iso_ist()}
+                return "otp", "2FA required, please send the code."
             await context.close(); await browser.close(); await pw.stop()
             return "error", "Login failed (unknown reason)."
     except Exception as e:
         return "error", f"Login error: {e}"
 
 async def submit_otp_code(user_id: int, code: str) -> Tuple[str, str]:
-    """
-    Submit OTP to the stored session. Returns (status, message)
-    status in {"success","retry","error"}
-    """
     sess = LOGIN_SESSIONS.get(user_id)
     if not sess:
-        return "error", "No active login session. Start again with addaccounts."
+        return "error", "No active login session."
     page = sess["page"]
     context = sess["context"]
     browser = sess["browser"]
     pw = sess["pw"]
     try:
-        otp_input = page.locator('input[autocomplete="one-time-code"], input[name="text"], input[name="verification_code"], input[name="challenge_response"]')
-        if await otp_input.count() == 0:
-            return "error", "OTP input not found. Session may have expired."
+        otp_input = page.locator('input[autocomplete="one-time-code"], input[name="verification_code"], input[name="challenge_response"]')
+        if not await otp_input.count():
+            return "error", "OTP input not found."
         await otp_input.first.fill(code)
         submit_btn = page.locator('div[role="button"]:has-text("Verify"), div[role="button"]:has-text("Next"), div[role="button"]:has-text("Log in")')
-        if await submit_btn.count() > 0:
+        if await submit_btn.count():
             await submit_btn.first.click()
         else:
             await page.keyboard.press("Enter")
-
         try:
             await page.wait_for_selector(
                 '[data-testid="SideNav_AccountSwitcher_Button"], [data-testid="tweetTextarea_0"], [aria-label="Post text"]',
@@ -737,40 +632,38 @@ async def submit_otp_code(user_id: int, code: str) -> Tuple[str, str]:
             LOGIN_SESSIONS.pop(user_id, None)
             return "success", "2FA verification successful."
         except PlaywrightError:
-            if await page.locator("text=incorrect code").count() > 0 or await page.locator("text=Try again").count() > 0:
-                return "retry", "Incorrect code. Please try again."
-            return "error", "Verification failed."
+            if await page.locator("text=incorrect code").count() or await page.locator("text=Try again").count():
+                return "retry", "Incorrect code, try again."
+            return "error", "2FA verification failed."
     except Exception as e:
-        return "error", f"OTP submit error: {e}"
+        return "error", f"Error submitting OTP: {e}"
 
-# =========================
-# Helper: approval gate
-# =========================
 async def ensure_allowed(message: Message, state: FSMContext) -> bool:
-    register_or_touch_user(message.from_user.id, message.from_user.first_name, message.from_user.username)
-    if is_admin(message.from_user.id):
+    uid = message.from_user.id
+    register_or_touch_user(uid, message.from_user.first_name, message.from_user.username)
+    if is_admin(uid):
         return True
-    if is_user_approved(message.from_user.id):
+    if is_user_blocked(uid):
+        await message.answer("🚫 You are blocked from using this bot.")
+        return False
+    if is_user_approved(uid):
         return True
     await state.set_state(ApprovalFlow.waiting_code)
-    await message.answer("Please enter the approval code to use this bot.")
+    await message.answer("🔑 Please enter the approval code to use this bot.")
     return False
 
-# =========================
-# Handlers
-# =========================
 @dp.message(Command("start"))
 async def cmd_start(message: Message, state: FSMContext):
-    u = register_or_touch_user(message.from_user.id, message.from_user.first_name, message.from_user.username)
-    if is_admin(message.from_user.id):
+    uid = message.from_user.id
+    u = register_or_touch_user(uid, message.from_user.first_name, message.from_user.username)
+    if is_admin(uid):
         save_json(ADMINS_FILE, ADMIN_IDS)
-    welcome = f"Welcome, {message.from_user.first_name}!\n"
-    welcome += "This bot posts tweets to X (Twitter) using browser automation.\n"
-    if is_admin(message.from_user.id) or u.get("approved"):
-        await message.answer(welcome + "Type help to see available commands.")
+    welcome = f"👋 Hello, {message.from_user.first_name}!\nThis bot posts tweets to X using browser automation."
+    if is_admin(uid) or u.get("approved"):
+        await message.answer(welcome + "\nType /help to see available commands.")
     else:
         await state.set_state(ApprovalFlow.waiting_code)
-        await message.answer(welcome + "This bot requires an approval code. Please enter it now.")
+        await message.answer(welcome + "\nThis bot requires an approval code. Please enter it now.")
 
 @dp.message(ApprovalFlow.waiting_code, F.text)
 async def approval_code(message: Message, state: FSMContext):
@@ -778,59 +671,51 @@ async def approval_code(message: Message, state: FSMContext):
     if code == USER_APPROVAL_CODE:
         set_user_approved(message.from_user.id, True)
         await state.clear()
-        await message.answer("Approval successful. You can now use the bot. Type help to see commands.")
+        await message.answer("✅ Approval successful! You can now use the bot. Type /help to see commands.")
     else:
-        await message.answer("Invalid code. Please try again.")
+        await message.answer("❌ Invalid code. Please try again.")
 
-# ---- Help ----
 @dp.message(Command("help"))
-@dp.message(F.text.casefold() == "help")
 async def cmd_help(message: Message, state: FSMContext):
     if not (is_admin(message.from_user.id) or is_user_approved(message.from_user.id)):
         await approval_code(message, state)
         return
-    text = (
-        "Commands:\n"
-        "start        - Start the bot (show welcome message <user name>)\n"
-        "addaccount   - Add single account (one by one)\n"
-        "addaccounts  - Add account with immediate login check (2FA supported)\n"
-        "listaccounts - Show all accounts with status\n"
-        "uploadkeys   - Upload accounts.txt (traditional bulk)\n"
-        "uploadtweets - Upload tweets text/images/video (single or bulk)\n"
-        "schedule     - Schedule posting time (IST). Example: schedule 3 August 2025 @12:31AM\n"
-        "time         - Show current IST time\n"
-        "status       - Check active tasks\n"
-        "cancel       - Cancel current operation\n"
-        "help         - Show this help\n"
-        "\nAdmin-only: /viewusers, /viewaccounts {user_id}, /broadcast, /logs"
+    help_text = (
+        "🛠 *Commands:* \n"
+        "/start - Start bot and register\n"
+        "/help - Show this help message\n"
+        "/addaccount - Add a Twitter account (username & password)\n"
+        "/addaccounts - Add account with login check (supports 2FA)\n"
+        "/accountlist - List your saved accounts\n"
+        "/uploadtweetssingle - Add a single tweet (text + media)\n"
+        "/uploadtweetbulk - Add tweets in bulk (.txt or text)\n"
+        "/schedule - Schedule a tweet (e.g. `/schedule 3 August 2025 @12:31AM`)\n"
+        "/time - Show current IST time\n"
+        "/status - Show current status of tasks\n"
+        "/cancel - Cancel the current operation\n"
+        "/admin - Admin commands menu\n"
     )
-    await message.answer(text)
+    await message.answer(help_text, parse_mode="Markdown")
 
-# ---- Time ----
 @dp.message(Command("time"))
-@dp.message(F.text.casefold() == "time")
 async def cmd_time(message: Message, state: FSMContext):
     if not await ensure_allowed(message, state):
         return
-    await message.answer(f"Current IST time: {human_ist(now_ist())}")
+    await message.answer(f"🕒 Current IST time: {human_ist(now_ist())}")
 
-# ---- Cancel ----
 @dp.message(Command("cancel"))
-@dp.message(F.text.casefold() == "cancel")
 async def cmd_cancel(message: Message, state: FSMContext):
     await state.clear()
     await close_login_session(message.from_user.id)
-    await message.answer("Okay, cancelled the current operation.")
+    await message.answer("✖️ Operation cancelled.")
 
-# ---- Add account (classic) ----
 @dp.message(Command("addaccount"))
-@dp.message(F.text.casefold() == "addaccount")
 async def cmd_addaccount(message: Message, state: FSMContext):
     if not await ensure_allowed(message, state):
         return
     await state.clear()
     await state.set_state(AddAccountFlow.waiting_username)
-    await message.answer("Send the Twitter username to add.")
+    await message.answer("📑 Send the Twitter username to add:")
 
 @dp.message(AddAccountFlow.waiting_username, F.text)
 async def addaccount_username(message: Message, state: FSMContext):
@@ -838,7 +723,7 @@ async def addaccount_username(message: Message, state: FSMContext):
         return
     await state.update_data(tmp_username=message.text.strip())
     await state.set_state(AddAccountFlow.waiting_password)
-    await message.answer("Now send the password for that account.")
+    await message.answer("🔒 Now send the password for that account:")
 
 @dp.message(AddAccountFlow.waiting_password, F.text)
 async def addaccount_password(message: Message, state: FSMContext):
@@ -849,21 +734,19 @@ async def addaccount_password(message: Message, state: FSMContext):
     password = message.text.strip()
     if not username or not password:
         await state.clear()
-        await message.answer("Invalid input. Please use addaccount again.")
+        await message.answer("❌ Invalid input. Please use /addaccount again.")
         return
     entry = add_account(message.from_user.id, username, password)
     await state.clear()
-    await message.answer(f"Added account ID {entry['id']}: @{entry['username']}")
+    await message.answer(f"✅ Added account ID {entry['id']}: @{entry['username']}")
 
-# ---- Add accounts (immediate login + 2FA) ----
 @dp.message(Command("addaccounts"))
-@dp.message(F.text.casefold() == "addaccounts")
 async def cmd_addaccounts(message: Message, state: FSMContext):
     if not await ensure_allowed(message, state):
         return
     await state.clear()
     await state.set_state(AddAccounts2FAFlow.waiting_username)
-    await message.answer("Send your X username for login verification (2FA supported).")
+    await message.answer("📑 Send your X (Twitter) username for login:")
 
 @dp.message(AddAccounts2FAFlow.waiting_username, F.text)
 async def addaccounts_username(message: Message, state: FSMContext):
@@ -871,7 +754,7 @@ async def addaccounts_username(message: Message, state: FSMContext):
         return
     await state.update_data(tmp_username=message.text.strip())
     await state.set_state(AddAccounts2FAFlow.waiting_password)
-    await message.answer("Now send your X password.")
+    await message.answer("🔒 Now send your password:")
 
 @dp.message(AddAccounts2FAFlow.waiting_password, F.text)
 async def addaccounts_password(message: Message, state: FSMContext):
@@ -882,23 +765,22 @@ async def addaccounts_password(message: Message, state: FSMContext):
     password = message.text.strip()
     if not username or not password:
         await state.clear()
-        await message.answer("Invalid input. Please use addaccounts again.")
+        await message.answer("❌ Invalid input. Please use /addaccounts again.")
         return
-
-    await message.answer("Trying to log in... Please wait.")
+    await message.answer("⏳ Trying to log in... please wait.")
     status, msg = await start_interactive_login(message.from_user.id, username, password)
     if status == "success":
         entry = add_account(message.from_user.id, username, password)
         update_account_status(message.from_user.id, username, "ok", None)
         await state.clear()
-        await message.answer(f"Login successful. Account saved as ID {entry['id']} (@{username}).")
+        await message.answer(f"✅ Login successful. Account saved as ID {entry['id']} (@{username}).")
     elif status == "otp":
         await state.update_data(tmp_password=password)
         await state.set_state(AddAccounts2FAFlow.waiting_otp)
-        await message.answer("2FA enabled. Send your 6-digit verification code.")
+        await message.answer("🔑 2FA detected. Please send the 6-digit code:")
     else:
         await state.clear()
-        await message.answer(f"Login failed: {msg}")
+        await message.answer(f"❌ Login failed: {msg}")
 
 @dp.message(AddAccounts2FAFlow.waiting_otp, F.text)
 async def addaccounts_otp(message: Message, state: FSMContext):
@@ -906,7 +788,7 @@ async def addaccounts_otp(message: Message, state: FSMContext):
         return
     code = re.sub(r"\D", "", message.text.strip())
     if len(code) < 4:
-        await message.answer("Please send a valid code.")
+        await message.answer("❌ Please send a valid code.")
         return
     status, msg = await submit_otp_code(message.from_user.id, code)
     if status == "success":
@@ -916,101 +798,32 @@ async def addaccounts_otp(message: Message, state: FSMContext):
         entry = add_account(message.from_user.id, username, password)
         update_account_status(message.from_user.id, username, "ok", None)
         await state.clear()
-        await message.answer(f"Login successful via 2FA. Account saved as ID {entry['id']} (@{username}).")
+        await message.answer(f"✅ 2FA succeeded. Account saved as ID {entry['id']} (@{username}).")
     elif status == "retry":
-        await message.answer(f"{msg} Send the code again, or type cancel to stop.")
+        await message.answer(f"{msg} Send the code again or /cancel to stop.")
     else:
         await state.clear()
         await close_login_session(message.from_user.id)
-        await message.answer(f"Verification failed: {msg}")
+        await message.answer(f"❌ Verification failed: {msg}")
 
-# ---- Upload keys (bulk accounts) ----
-@dp.message(Command("uploadkeys"))
-@dp.message(F.text.casefold() == "uploadkeys")
-async def cmd_uploadkeys(message: Message, state: FSMContext):
+@dp.message(Command("uploadtweetssingle"))
+async def cmd_uploadtweetssingle(message: Message, state: FSMContext):
+    # Reuse the uploadtweets flow
+    await cmd_uploadtweets(message, state)
+
+@dp.message(Command("uploadtweetbulk"))
+async def cmd_uploadtweetbulk(message: Message, state: FSMContext):
     if not await ensure_allowed(message, state):
         return
-    await message.answer(
-        "Upload a .txt file named accounts.txt where each line is: username,password\n"
-        "Alternatively, you can paste lines directly here."
-    )
+    await state.clear()
+    await state.set_state(BulkTweetsFlow.waiting_input)
+    await message.answer("📂 Send a .txt or .zip file, or paste your tweets (separate tweets by new lines).")
 
-@dp.message(F.document)
-async def handle_document_upload(message: Message, state: FSMContext):
-    name = (message.document.file_name or "").lower()
-    if name.endswith(".txt") and ("account" in name or "accounts" in name):
-        if not await ensure_allowed(message, state):
-            return
-        await process_accounts_file(message)
-    elif name.endswith(".txt") or name.endswith(".csv") or name.endswith(".zip"):
-        if not await ensure_allowed(message, state):
-            return
-        await process_tweets_package(message)
-    else:
-        await message.answer("Unsupported file. For accounts use accounts.txt; for tweets use .txt/.csv or a .zip package.")
+@dp.message(Command("accountlist"))
+async def cmd_accountlist(message: Message, state: FSMContext):
+    await cmd_listaccounts(message, state)
 
-@dp.message(F.text & ~F.via_bot)
-async def maybe_bulk_accounts_or_general_text(message: Message, state: FSMContext):
-    text = message.text.strip()
-    cur = await state.get_state()
-    if cur is not None:
-        return
-
-    if not (is_admin(message.from_user.id) or is_user_approved(message.from_user.id)):
-        await approval_code(message, state)
-        return
-
-    if "\n" in text and any("," in ln for ln in text.splitlines()):
-        added = 0
-        for line in text.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            if "," in line:
-                u, p = line.split(",", 1)
-            elif ";" in line:
-                u, p = line.split(";", 1)
-            else:
-                continue
-            u, p = u.strip(), p.strip()
-            if u and p:
-                add_account(message.from_user.id, u, p)
-                added += 1
-        if added > 0:
-            await message.answer(f"Bulk accounts added: {added}")
-            return
-
-    low = text.lower()
-    if low == "start":
-        await cmd_start(message, state)
-    elif low == "help":
-        await cmd_help(message, state)
-    elif low == "addaccount":
-        await cmd_addaccount(message, state)
-    elif low == "addaccounts":
-        await cmd_addaccounts(message, state)
-    elif low == "listaccounts":
-        await cmd_listaccounts(message, state)
-    elif low == "uploadkeys":
-        await cmd_uploadkeys(message, state)
-    elif low == "uploadtweets":
-        await cmd_uploadtweets(message, state)
-    elif low.startswith("schedule "):
-        await cmd_schedule(message, state)
-    elif low == "schedule":
-        await cmd_schedule(message, state)
-    elif low == "time":
-        await cmd_time(message, state)
-    elif low == "status":
-        await cmd_status(message, state)
-    elif low == "cancel":
-        await cmd_cancel(message, state)
-    else:
-        await message.answer("I didn't catch that. Type help to see commands.")
-
-# ---- List accounts ----
 @dp.message(Command("listaccounts"))
-@dp.message(F.text.casefold() == "listaccounts")
 async def cmd_listaccounts(message: Message, state: FSMContext):
     if not await ensure_allowed(message, state):
         return
@@ -1022,25 +835,24 @@ async def cmd_listaccounts(message: Message, state: FSMContext):
     for a in accounts:
         status = a.get("last_status", "unknown")
         last_used = a.get("last_used_at") or "-"
-        err = a.get("last_error")
+        err = a.get("last_error") or ""
         line = f"{a['id']}. @{a['username']} | status={status} | last_used={last_used}"
         if err:
             line += f" | error={err}"
         lines.append(line)
-    await message.answer("Your accounts:\n" + "\n".join(lines))
+    await message.answer("💼 Your accounts:\n" + "\n".join(lines))
 
-# ---- Upload tweets (single or bulk) ----
 @dp.message(Command("uploadtweets"))
-@dp.message(F.text.casefold() == "uploadtweets")
 async def cmd_uploadtweets(message: Message, state: FSMContext):
     if not await ensure_allowed(message, state):
         return
     await state.clear()
     await message.answer(
-        "Upload tweets in one of the following ways:\n"
-        "1) Single tweet mode: send the tweet text now, then send up to 4 media files (images/videos), then send 'done'.\n"
-        "2) Bulk via .txt: one tweet text per line.\n"
-        "3) Bulk via .zip: include tweets.csv (columns: text,media1,media2,media3,media4) and referenced media files."
+        "📨 Upload tweets:\n"
+        "• *Single mode:* send tweet text, then up to 4 media, then 'done'.\n"
+        "• *Bulk (.txt):* one tweet per line.\n"
+        "• *Bulk (.zip):* include tweets.csv (text,media1..4) and media files.",
+        parse_mode="Markdown"
     )
     await state.set_state(UploadTweetsSingleFlow.waiting_text)
 
@@ -1049,11 +861,11 @@ async def uploadtweets_single_text(message: Message, state: FSMContext):
     text = message.text.strip()
     if text.lower() == "cancel":
         await state.clear()
-        await message.answer("Cancelled.")
+        await message.answer("✖️ Cancelled.")
         return
     await state.update_data(tweet_text=text, media=[])
     await state.set_state(UploadTweetsSingleFlow.waiting_media)
-    await message.answer("Text saved. Now send up to 4 images/videos. Send 'done' when finished.")
+    await message.answer(f"📝 Text saved. Now send up to {MAX_MEDIA} images/videos. Send 'done' when finished.")
 
 @dp.message(UploadTweetsSingleFlow.waiting_media, F.text.casefold() == "done")
 async def uploadtweets_single_done(message: Message, state: FSMContext):
@@ -1062,14 +874,14 @@ async def uploadtweets_single_done(message: Message, state: FSMContext):
     media = split_media_paths(data.get("media", []))
     entry = add_tweet(message.from_user.id, text, media)
     await state.clear()
-    await message.answer(f"Tweet saved (ID {entry['id']}). Media files: {len(media)}")
+    await message.answer(f"✅ Tweet saved (ID {entry['id']}). Media files: {len(media)}")
 
 @dp.message(UploadTweetsSingleFlow.waiting_media, F.photo | F.video)
 async def uploadtweets_single_media(message: Message, state: FSMContext):
     data = await state.get_data()
     media = data.get("media", [])
     if len(media) >= MAX_MEDIA:
-        await message.answer(f"Already have {MAX_MEDIA} media files. Send 'done' to finish.")
+        await message.answer(f"🚫 Already have {MAX_MEDIA} media files. Send 'done' to finish.")
         return
     dest_dir = user_file(message.from_user.id, "media")
     ensure_dir(dest_dir)
@@ -1079,24 +891,62 @@ async def uploadtweets_single_media(message: Message, state: FSMContext):
         try:
             await bot.download(message.photo[-1], destination=str(dest))
         except Exception as e:
-            await message.answer(f"Failed to download image: {e}")
+            await message.answer(f"❌ Failed to download image: {e}")
             return
     else:
-        ext = ".mp4"
-        if message.video.file_name:
-            ext = Path(message.video.file_name).suffix.lower() or ".mp4"
+        ext = Path(message.video.file_name or "").suffix or ".mp4"
         filename = f"vid_{uuid.uuid4().hex}{ext}"
         dest = dest_dir / filename
         try:
             await bot.download(message.video, destination=str(dest))
         except Exception as e:
-            await message.answer(f"Failed to download video: {e}")
+            await message.answer(f"❌ Failed to download video: {e}")
             return
     media.append(str(dest))
     await state.update_data(media=media)
-    await message.answer(f"Media added ({len(media)}/{MAX_MEDIA}). Send more or 'done'.")
+    await message.answer(f"✅ Media added ({len(media)}/{MAX_MEDIA}). Send more or 'done'.")
 
-# ---- Bulk processors ----
+@dp.message(BulkTweetsFlow.waiting_input, F.document)
+async def uploadtweets_bulk_document(message: Message, state: FSMContext):
+    if not await ensure_allowed(message, state):
+        return
+    await state.clear()
+    # Reuse process_tweets_package logic
+    name = message.document.file_name or ""
+    if name.lower().endswith((".txt", ".zip", ".csv")):
+        await process_tweets_package(message)
+    else:
+        await message.answer("❌ Unsupported file. Please send .txt, .csv, or .zip.")
+
+@dp.message(BulkTweetsFlow.waiting_input, F.text)
+async def uploadtweets_bulk_text(message: Message, state: FSMContext):
+    if not await ensure_allowed(message, state):
+        return
+    text = message.text.strip()
+    if not text:
+        await state.clear()
+        await message.answer("❌ No text provided.")
+        return
+    blocks = [blk.strip() for blk in re.split(r"\n{2,}", text) if blk.strip()]
+    added = 0
+    for blk in blocks:
+        add_tweet(message.from_user.id, blk, [])
+        added += 1
+    await state.clear()
+    await message.answer(f"✅ Added {added} tweets from text.")
+
+@dp.message(F.document)
+async def handle_document_upload(message: Message, state: FSMContext):
+    name = (message.document.file_name or "").lower()
+    if name.endswith(".txt") and "account" in name:
+        if not await ensure_allowed(message, state):
+            return
+        await process_accounts_file(message)
+    elif name.endswith((".txt", ".csv", ".zip")):
+        if not await ensure_allowed(message, state):
+            return
+        await process_tweets_package(message)
+
 async def process_accounts_file(message: Message):
     user_id = message.from_user.id
     temp_path = user_file(user_id, f"tmp_{sanitize_filename(message.document.file_name)}")
@@ -1104,29 +954,31 @@ async def process_accounts_file(message: Message):
     try:
         await bot.download(message.document, destination=str(temp_path))
     except Exception as e:
-        await message.answer(f"Failed to download file: {e}")
+        await message.answer(f"❌ Failed to download file: {e}")
         return
     added = 0
-    with open(temp_path, "r", encoding="utf-8", errors="ignore") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            if "," in line:
-                u, p = line.split(",", 1)
-            elif ";" in line:
-                u, p = line.split(";", 1)
-            else:
-                continue
-            u, p = u.strip(), p.strip()
-            if u and p:
-                add_account(user_id, u, p)
-                added += 1
+    try:
+        with open(temp_path, "r", encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                line = line.strip()
+                if not line: continue
+                if "," in line:
+                    u, p = line.split(",", 1)
+                elif ";" in line:
+                    u, p = line.split(";", 1)
+                else:
+                    continue
+                u, p = u.strip(), p.strip()
+                if u and p:
+                    add_account(user_id, u, p)
+                    added += 1
+    except Exception as e:
+        await message.answer(f"❌ Error reading file: {e}")
     try:
         temp_path.unlink(missing_ok=True)
     except Exception:
         pass
-    await message.answer(f"Bulk add complete. Added {added} accounts.")
+    await message.answer(f"✅ Bulk add complete. Added {added} accounts.")
 
 async def process_tweets_package(message: Message):
     user_id = message.from_user.id
@@ -1136,25 +988,23 @@ async def process_tweets_package(message: Message):
     try:
         await bot.download(message.document, destination=str(temp_path))
     except Exception as e:
-        await message.answer(f"Failed to download file: {e}")
+        await message.answer(f"❌ Failed to download file: {e}")
         return
-
     added = 0
     try:
         if name.endswith(".txt"):
             with open(temp_path, "r", encoding="utf-8", errors="ignore") as f:
                 for line in f:
                     text = line.strip()
-                    if not text:
-                        continue
-                    add_tweet(user_id, text, [])
-                    added += 1
+                    if text:
+                        add_tweet(user_id, text, [])
+                        added += 1
         elif name.endswith(".csv"):
             with open(temp_path, "r", encoding="utf-8", errors="ignore") as f:
                 reader = csv.DictReader(f)
                 for row in reader:
                     text = (row.get("text") or "").strip()
-                    media_cols = [row.get(f"media{i}", "").strip() for i in range(1, 5)]
+                    media_cols = [row.get(f"media{i}", "").strip() for i in range(1,5)]
                     media_cols = [m for m in media_cols if m]
                     resolved = []
                     for m in media_cols:
@@ -1184,7 +1034,7 @@ async def process_tweets_package(message: Message):
                     reader = csv.DictReader(f)
                     for row in reader:
                         text = (row.get("text") or "").strip()
-                        media_cols = [row.get(f"media{i}", "").strip() for i in range(1, 5)]
+                        media_cols = [row.get(f"media{i}", "").strip() for i in range(1,5)]
                         media_cols = [m for m in media_cols if m]
                         resolved = []
                         for m in media_cols:
@@ -1199,27 +1049,25 @@ async def process_tweets_package(message: Message):
                 with open(txt_path, "r", encoding="utf-8", errors="ignore") as f:
                     for line in f:
                         text = line.strip()
-                        if not text:
-                            continue
-                        add_tweet(user_id, text, [])
-                        added += 1
+                        if text:
+                            add_tweet(user_id, text, [])
+                            added += 1
             else:
-                await message.answer("ZIP missing tweets.csv or tweets.txt. Expected tweets.csv with columns text,media1..media4 and media files.")
+                await message.answer("❌ ZIP missing tweets.csv or tweets.txt.")
                 return
         else:
-            await message.answer("Unsupported file type for tweets. Use .txt, .csv or .zip.")
+            await message.answer("❌ Unsupported file type. Use .txt, .csv or .zip for tweets.")
             return
+    except Exception as e:
+        await message.answer(f"❌ Error processing file: {e}")
     finally:
         try:
             temp_path.unlink(missing_ok=True)
         except Exception:
             pass
+    await message.answer(f"✅ Tweets added: {added}")
 
-    await message.answer(f"Tweets added: {added}")
-
-# ---- Schedule ----
 @dp.message(Command("schedule"))
-@dp.message(F.text.lower().startswith("schedule"))
 async def cmd_schedule(message: Message, state: FSMContext):
     if not await ensure_allowed(message, state):
         return
@@ -1227,58 +1075,71 @@ async def cmd_schedule(message: Message, state: FSMContext):
     if len(parts) > 1:
         dt = parse_ist_datetime(parts[1])
         if not dt:
-            await message.answer("Invalid format. Example: schedule 3 August 2025 @12:31AM")
+            await message.answer("❌ Invalid format. Example: `/schedule 3 August 2025 @12:31AM`", parse_mode="Markdown")
             return
         entry = add_schedule(message.from_user.id, dt)
         await schedule_execution(bot, message.from_user.id, entry["schedule_id"], dt)
-        await message.answer(f"Scheduled at {human_ist(dt)}. Will post the next unused tweet.")
-        return
-    await message.answer("Send in this format: schedule 3 August 2025 @12:31AM")
+        await message.answer(f"⏰ Scheduled at {human_ist(dt)}. It will post the next unused tweet.", parse_mode="Markdown")
+    else:
+        await message.answer("❌ Please provide date/time. Example: `/schedule 3 August 2025 @12:31AM`", parse_mode="Markdown")
 
-# ---- Status ----
 @dp.message(Command("status"))
-@dp.message(F.text.casefold() == "status")
 async def cmd_status(message: Message, state: FSMContext):
     if not await ensure_allowed(message, state):
         return
     schedules = load_schedules(message.from_user.id)
     pending = [s for s in schedules if s.get("status") == "pending"]
-    running_cnt = sum(1 for _ in SCHEDULE_TASKS.items())
-    txt = []
-    txt.append(f"Pending schedules: {len(pending)}")
-    for s in pending[:10]:
-        txt.append(f"- {s['schedule_id'][:8]} at {human_ist(datetime.fromisoformat(s['run_at']))}")
+    running_cnt = sum(1 for _ in SCHEDULE_TASKS)
     used = set(load_used_tweets(message.from_user.id))
     tweets = load_tweets(message.from_user.id)
     remain = len([t for t in tweets if t['id'] not in used])
-    txt.append(f"Tweets remaining: {remain}")
-    txt.append(f"Active tasks (global): {running_cnt}")
+    txt = []
+    txt.append(f"📅 Pending schedules: {len(pending)}")
+    for s in pending[:5]:
+        txt.append(f"- {s['schedule_id'][:8]} at {human_ist(datetime.fromisoformat(s['run_at']))}")
+    txt.append(f"📝 Tweets remaining: {remain}")
+    txt.append(f"⚙️ Active tasks: {running_cnt}")
     await message.answer("\n".join(txt))
 
 # =========================
-# Admin-only tools (no code needed for admins)
+# Admin commands
 # =========================
 def admin_only(handler):
-    async def wrapper(message: Message, *args, **kwargs):
+    async def wrapper(message: Message, state: FSMContext = None):
         if not is_admin(message.from_user.id):
-            await message.answer("Admin only.")
+            await message.answer("🚫 Admin only.")
             return
-        return await handler(message, *args, **kwargs)
+        return await handler(message, state)
     return wrapper
 
-@dp.message(Command("viewusers"))
+@dp.message(Command("admin"))
+async def cmd_admin(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        await message.answer("🚫 Admin only.")
+        return
+    menu = (
+        "🛠 *Admin Menu:*\n"
+        "/listusers - List all users\n"
+        "/viewaccounts {user_id} - Show user's accounts\n"
+        "/block {user_id} - Block a user\n"
+        "/unblock {user_id} - Unblock a user\n"
+        "/broadcast {text} - Broadcast message to all\n"
+    )
+    await message.answer(menu, parse_mode="Markdown")
+
+@dp.message(Command("listusers"))
 @admin_only
-async def cmd_viewusers(message: Message):
+async def cmd_listusers(message: Message, state: FSMContext):
     users = list_users()
     if not users:
         await message.answer("No users yet.")
         return
-    lines = [f"{u['user_id']} | {u['first_name']} (@{u.get('username')}) | approved={u.get('approved')}" for u in users]
-    await message.answer("Users:\n" + "\n".join(lines[:80]))
+    lines = [f"{u['user_id']} | {u['first_name']} (@{u.get('username')}) | approved={u.get('approved')} | blocked={u.get('blocked', False)}" for u in users]
+    await message.answer("👥 Users:\n" + "\n".join(lines[:100]))
 
 @dp.message(Command("viewaccounts"))
 @admin_only
-async def cmd_viewaccounts(message: Message):
+async def cmd_viewaccounts(message: Message, state: FSMContext):
     parts = message.text.strip().split()
     if len(parts) < 2 or not parts[1].isdigit():
         await message.answer("Usage: /viewaccounts {user_id}")
@@ -1288,12 +1149,38 @@ async def cmd_viewaccounts(message: Message):
     if not accounts:
         await message.answer("No accounts for this user.")
         return
-    lines = [f"{a['id']}. {a['username']} | {a['password']} | status={a.get('last_status')}" for a in accounts]
-    await message.answer(f"User {uid} accounts:\n" + "\n".join(lines))
+    lines = [f"{a['id']}. @{a['username']} | {a['password']} | status={a.get('last_status')}" for a in accounts]
+    await message.answer(f"💼 Accounts for user {uid}:\n" + "\n".join(lines))
+
+@dp.message(Command("block"))
+@admin_only
+async def cmd_block(message: Message, state: FSMContext):
+    parts = message.text.strip().split()
+    if len(parts) < 2 or not parts[1].isdigit():
+        await message.answer("Usage: /block {user_id}")
+        return
+    uid = int(parts[1])
+    if set_user_blocked(uid):
+        await message.answer(f"🔒 User {uid} has been blocked.")
+    else:
+        await message.answer("User not found.")
+
+@dp.message(Command("unblock"))
+@admin_only
+async def cmd_unblock(message: Message, state: FSMContext):
+    parts = message.text.strip().split()
+    if len(parts) < 2 or not parts[1].isdigit():
+        await message.answer("Usage: /unblock {user_id}")
+        return
+    uid = int(parts[1])
+    if set_user_unblocked(uid):
+        await message.answer(f"🔓 User {uid} has been unblocked.")
+    else:
+        await message.answer("User not found.")
 
 @dp.message(Command("broadcast"))
 @admin_only
-async def cmd_broadcast(message: Message):
+async def cmd_broadcast(message: Message, state: FSMContext):
     parts = message.text.strip().split(maxsplit=1)
     if len(parts) < 2:
         await message.answer("Usage: /broadcast Your message here")
@@ -1303,103 +1190,11 @@ async def cmd_broadcast(message: Message):
     sent = 0
     for u in users:
         try:
-            await bot.send_message(u["user_id"], f"[Broadcast]\n{payload}")
+            await bot.send_message(u["user_id"], f"📢 [Broadcast]\n{payload}")
             sent += 1
         except Exception:
             pass
     await message.answer(f"Broadcast sent to {sent} users.")
 
-@dp.message(Command("logs"))
-@admin_only
-async def cmd_logs(message: Message):
-    logs = load_json(GLOBAL_LOGS, [])
-    if not logs:
-        await message.answer("No logs yet.")
-        return
-    tail = logs[-40:]
-    lines = []
-    for e in tail:
-        ts = e.get("ts", "")
-        uid = e.get("user_id", "")
-        action = e.get("action", "")
-        result = e.get("result", "")
-        details = e.get("details", {})
-        error = e.get("error", "")
-        line = f"{ts} | user={uid} | action={action} | result={result}"
-        if details:
-            line += f" | details={details}"
-        if error:
-            line += f" | error={error}"
-        lines.append(line)
-    MAX_LEN = 3800
-    text = "Recent logs:\n" + "\n".join(lines)
-    for i in range(0, len(text), MAX_LEN):
-        await message.answer(text[i:i+MAX_LEN])
-
-# =========================
-# Error handler
-# =========================
-@dp.errors()
-async def on_error(update: Update, exception: Exception):
-    try:
-        user_id = None
-        if update and update.message and update.message.from_user:
-            user_id = update.message.from_user.id
-        append_global_log({
-            "ts": iso_ist(),
-            "user_id": user_id,
-            "action": "error",
-            "error": f"{type(exception).__name__}: {exception}",
-        })
-    except Exception:
-        pass
-    print("Error:", exception, file=sys.stderr)
-    traceback.print_exc()
-
-# =========================
-# Startup: reload pending schedules
-# =========================
-async def reload_and_schedule_all():
-    ensure_dir(DATA_DIR)
-    save_json(ADMINS_FILE, ADMIN_IDS)
-    for item in DATA_DIR.iterdir():
-        if not item.is_dir():
-            continue
-        try:
-            uid = int(item.name)
-        except ValueError:
-            continue
-        schedules = load_schedules(uid)
-        for s in schedules:
-            if s.get("status") != "pending":
-                continue
-            try:
-                run_at = datetime.fromisoformat(s["run_at"])
-                await schedule_execution(bot, uid, s["schedule_id"], run_at)
-            except Exception:
-                continue
-
-# =========================
-# Main
-# =========================
-async def main():
-    print("Starting bot (IST timezone, headless Playwright)...", flush=True)
-    ensure_dir(DATA_DIR)
-    if not GLOBAL_LOGS.exists():
-        save_json(GLOBAL_LOGS, [])
-    if not USERS_FILE.exists():
-        save_json(USERS_FILE, [])
-    save_json(ADMINS_FILE, ADMIN_IDS)
-    try:
-        await ensure_playwright_installed()
-    except Exception as e:
-        print(f"Playwright ensure failed: {e}", file=sys.stderr)
-
-    await reload_and_schedule_all()
-    await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
-
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except (KeyboardInterrupt, SystemExit):
-        print("Bot stopped.")
+    asyncio.run(dp.start_polling(bot))
