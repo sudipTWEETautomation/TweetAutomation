@@ -925,7 +925,7 @@ async def addaccounts_otp(message: Message, state: FSMContext):
         await message.answer(f"Verification failed: {msg}")
 
 # ---- Upload keys (bulk accounts) ----
-@dp.message(Command("uploadkeys")))
+@dp.message(Command("uploadkeys"))
 @dp.message(F.text.casefold() == "uploadkeys")
 async def cmd_uploadkeys(message: Message, state: FSMContext):
     if not await ensure_allowed(message, state):
