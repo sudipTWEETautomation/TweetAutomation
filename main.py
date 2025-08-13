@@ -15,7 +15,7 @@ from typing import List, Dict, Any, Optional, Tuple
 from zoneinfo import ZoneInfo
 
 from aiogram import Bot, Dispatcher, F
-from aiogram.filters import Command, Text
+from aiogram.filters import Command
 from aiogram.types import Message, Update
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
@@ -26,9 +26,8 @@ from playwright.async_api import async_playwright, Error as PlaywrightError
 # =========================
 # Hard-coded constants
 # =========================
-# Put your bot token here
+# Bot token (read from env; fail fast if missing)
 BOT_TOKEN = "8428126884:AAFeYk650yE4oUXNIDSi_Mjv9Rl9WIPZ8SQ"
-
 # Admins by Telegram user ID (no code needed for admin commands)
 ADMIN_IDS = [6535216093]  # <-- replace with your Telegram user ID(s)
 
@@ -348,7 +347,10 @@ async def post_tweet_via_playwright(
     try:
         await ensure_playwright_installed()
         async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=PLAYWRIGHT_HEADLESS)
+            browser = await p.chromium.launch(
+                headless=PLAYWRIGHT_HEADLESS,
+                args=["--no-sandbox", "--disable-dev-shm-usage"]
+            )
             context = await browser.new_context(
                 locale="en-US",
                 viewport={"width": 1280, "height": 900},
@@ -627,7 +629,10 @@ async def start_interactive_login(user_id: int, username: str, password: str) ->
     try:
         await ensure_playwright_installed()
         pw = await async_playwright().start()
-        browser = await pw.chromium.launch(headless=PLAYWRIGHT_HEADLESS)
+        browser = await pw.chromium.launch(
+            headless=PLAYWRIGHT_HEADLESS,
+            args=["--no-sandbox", "--disable-dev-shm-usage"]
+        )
         context = await browser.new_context(
             locale="en-US",
             viewport={"width": 1280, "height": 900},
@@ -779,7 +784,7 @@ async def approval_code(message: Message, state: FSMContext):
 
 # ---- Help ----
 @dp.message(Command("help"))
-@dp.message(Text(equals="help", ignore_case=True))
+@dp.message(F.text.casefold() == "help")
 async def cmd_help(message: Message, state: FSMContext):
     if not (is_admin(message.from_user.id) or is_user_approved(message.from_user.id)):
         await approval_code(message, state)
@@ -803,7 +808,7 @@ async def cmd_help(message: Message, state: FSMContext):
 
 # ---- Time ----
 @dp.message(Command("time"))
-@dp.message(Text(equals="time", ignore_case=True))
+@dp.message(F.text.casefold() == "time")
 async def cmd_time(message: Message, state: FSMContext):
     if not await ensure_allowed(message, state):
         return
@@ -811,7 +816,7 @@ async def cmd_time(message: Message, state: FSMContext):
 
 # ---- Cancel ----
 @dp.message(Command("cancel"))
-@dp.message(Text(equals="cancel", ignore_case=True))
+@dp.message(F.text.casefold() == "cancel")
 async def cmd_cancel(message: Message, state: FSMContext):
     await state.clear()
     await close_login_session(message.from_user.id)
@@ -819,7 +824,7 @@ async def cmd_cancel(message: Message, state: FSMContext):
 
 # ---- Add account (classic) ----
 @dp.message(Command("addaccount"))
-@dp.message(Text(equals="addaccount", ignore_case=True))
+@dp.message(F.text.casefold() == "addaccount")
 async def cmd_addaccount(message: Message, state: FSMContext):
     if not await ensure_allowed(message, state):
         return
@@ -852,7 +857,7 @@ async def addaccount_password(message: Message, state: FSMContext):
 
 # ---- Add accounts (immediate login + 2FA) ----
 @dp.message(Command("addaccounts"))
-@dp.message(Text(equals="addaccounts", ignore_case=True))
+@dp.message(F.text.casefold() == "addaccounts")
 async def cmd_addaccounts(message: Message, state: FSMContext):
     if not await ensure_allowed(message, state):
         return
@@ -920,8 +925,8 @@ async def addaccounts_otp(message: Message, state: FSMContext):
         await message.answer(f"Verification failed: {msg}")
 
 # ---- Upload keys (bulk accounts) ----
-@dp.message(Command("uploadkeys"))
-@dp.message(Text(equals="uploadkeys", ignore_case=True))
+@dp.message(Command("uploadkeys")))
+@dp.message(F.text.casefold() == "uploadkeys")
 async def cmd_uploadkeys(message: Message, state: FSMContext):
     if not await ensure_allowed(message, state):
         return
@@ -1005,7 +1010,7 @@ async def maybe_bulk_accounts_or_general_text(message: Message, state: FSMContex
 
 # ---- List accounts ----
 @dp.message(Command("listaccounts"))
-@dp.message(Text(equals="listaccounts", ignore_case=True))
+@dp.message(F.text.casefold() == "listaccounts")
 async def cmd_listaccounts(message: Message, state: FSMContext):
     if not await ensure_allowed(message, state):
         return
@@ -1026,7 +1031,7 @@ async def cmd_listaccounts(message: Message, state: FSMContext):
 
 # ---- Upload tweets (single or bulk) ----
 @dp.message(Command("uploadtweets"))
-@dp.message(Text(equals="uploadtweets", ignore_case=True))
+@dp.message(F.text.casefold() == "uploadtweets")
 async def cmd_uploadtweets(message: Message, state: FSMContext):
     if not await ensure_allowed(message, state):
         return
@@ -1050,7 +1055,7 @@ async def uploadtweets_single_text(message: Message, state: FSMContext):
     await state.set_state(UploadTweetsSingleFlow.waiting_media)
     await message.answer("Text saved. Now send up to 4 images/videos. Send 'done' when finished.")
 
-@dp.message(UploadTweetsSingleFlow.waiting_media, Text(equals="done", ignore_case=True))
+@dp.message(UploadTweetsSingleFlow.waiting_media, F.text.casefold() == "done")
 async def uploadtweets_single_done(message: Message, state: FSMContext):
     data = await state.get_data()
     text = data.get("tweet_text", "")
@@ -1214,7 +1219,7 @@ async def process_tweets_package(message: Message):
 
 # ---- Schedule ----
 @dp.message(Command("schedule"))
-@dp.message(Text(startswith="schedule", ignore_case=True))
+@dp.message(F.text.lower().startswith("schedule"))
 async def cmd_schedule(message: Message, state: FSMContext):
     if not await ensure_allowed(message, state):
         return
@@ -1232,7 +1237,7 @@ async def cmd_schedule(message: Message, state: FSMContext):
 
 # ---- Status ----
 @dp.message(Command("status"))
-@dp.message(Text(equals="status", ignore_case=True))
+@dp.message(F.text.casefold() == "status")
 async def cmd_status(message: Message, state: FSMContext):
     if not await ensure_allowed(message, state):
         return
